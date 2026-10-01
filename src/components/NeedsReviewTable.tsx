@@ -1,35 +1,26 @@
 import type { DashboardCandidate } from '@/lib/queries';
+import { ROLE_SHORT } from '@/lib/format';
+import { AlertIcon } from './icons';
 
 export default function NeedsReviewTable({ candidates }: { candidates: DashboardCandidate[] }) {
   return (
-    <section>
-      <h2 className="mb-1 text-lg font-semibold text-amber-800">Needs manual review ({candidates.length})</h2>
-      <p className="mb-2 text-sm text-zinc-600">
-        These were not scored, ranked, briefed or drafted, and nothing about them was sent to the AI.
-        Review the original PDF yourself.
+    <section aria-label="Needs manual review" className="rounded-2xl border border-amber-300 bg-amber-50/60 p-5">
+      <h2 className="flex items-center gap-2 text-base font-semibold text-amber-900">
+        <AlertIcon /> Needs your review ({candidates.length})
+      </h2>
+      <p className="mt-1 text-sm text-amber-900/80">
+        The system could not safely separate these candidates&apos; personal details, so it did not score, rank or draft for them, and nothing about them
+        went to the AI. Open the original PDF yourself.
       </p>
-      <div className="overflow-hidden rounded-lg border border-amber-200 bg-white">
-        <table className="w-full border-collapse text-left">
-          <thead className="bg-amber-50 text-xs uppercase tracking-wide text-amber-900">
-            <tr>
-              <th className="px-3 py-2 font-medium">File</th>
-              <th className="px-3 py-2 font-medium">Applied for</th>
-              <th className="px-3 py-2 font-medium">Why</th>
-              <th className="px-3 py-2 font-medium">Uploaded</th>
-            </tr>
-          </thead>
-          <tbody>
-            {candidates.map((c) => (
-              <tr key={c.id} className="border-t border-amber-100">
-                <td className="px-3 py-2 text-sm">{c.original_filename}</td>
-                <td className="px-3 py-2 text-sm uppercase">{c.applied_role}</td>
-                <td className="px-3 py-2 text-sm text-zinc-600">{c.review_reason}</td>
-                <td className="px-3 py-2 text-sm text-zinc-400">{new Date(c.created_at).toLocaleString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <ul className="mt-3 divide-y divide-amber-200 overflow-hidden rounded-xl border border-amber-200 bg-white">
+        {candidates.map((c) => (
+          <li key={c.id} className="grid gap-1 px-4 py-3 text-sm sm:grid-cols-[1fr_5rem_2fr] sm:gap-4">
+            <span className="truncate font-medium text-zinc-900">{c.original_filename}</span>
+            <span className="text-zinc-500">{ROLE_SHORT[c.applied_role]}</span>
+            <span className="text-zinc-600">{c.review_reason}</span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

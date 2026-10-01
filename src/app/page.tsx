@@ -2,12 +2,11 @@ import UploadPanel from '@/components/UploadPanel';
 
 export default function UploadPage() {
   return (
-    <main className="mx-auto max-w-2xl px-6 py-10">
-      <h1 className="text-2xl font-semibold">Upload a CV</h1>
-      <p className="mt-1 text-sm text-zinc-600">
-        Pick the role the person applied for and upload their CV as a PDF. Personal details are
-        separated out first and never go to the AI. The rest is scored against both rubrics
-        automatically.
+    <main className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
+      <h1 className="text-2xl font-bold tracking-tight">Upload a CV</h1>
+      <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-zinc-600">
+        Choose the role the person applied for and add their CV. Their name, email and phone are separated out first and never reach the AI. The rest is
+        scored against both rubrics, ranked, and drafted for, in about half a minute.
       </p>
       <UploadPanel />
     </main>

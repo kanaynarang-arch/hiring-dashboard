@@ -20,10 +20,10 @@ presses **Confirm & send** for that candidate.
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Upload page: choose the role, upload a PDF, watch live progress, see the result |
-| `/dashboard` | Candidates ranked per role, per-criterion breakdown with reasons, brief, draft email, status, **Confirm & send** |
+| `/` | Upload page: role cards, drag-and-drop PDF, live progress, then the candidate's score, rank and whether they made the shortlist |
+| `/dashboard` | A tab per role (`?role=pm\|spm`). Summary strip; **Shortlist** cards (interview brief split into why they fit / strongest evidence / what to probe, rubric bars with reasons, draft email, **Confirm & send**); **Below the line** compact rows with the same evidence and a rejection draft; a **Needs your review** list |
 | `POST /api/upload` | Validates the PDF and role, creates the candidate, runs the pipeline after the response |
-| `GET /api/candidates/[id]/status` | Status and progress stage (used by the upload page) |
+| `GET /api/candidates/[id]/status` | Status, progress stage and, once scored, score and rank (used by the upload page; no personal details) |
 | `POST /api/candidates/[id]/confirm` | Persists the founder's confirmation for that candidate and exact content |
 | `POST /api/candidates/[id]/send` | The only path to Resend; refuses without a stored confirmation |
 
