@@ -38,16 +38,20 @@ export function deliveryAddress(storedEmail: string | null | undefined): string 
 export async function reopenTestSends(onlyIds?: string[]): Promise<number> {
   if (testModeRecipient()) return 0;
   const db = getDb();
-  let query = db.from('candidate_emails').select('candidate_id').eq('test_send', true).eq('status', 'sent');
+  let query = db.from('candidate_emails').select('candidate_id, send_generation').eq('test_send', true).eq('status', 'sent');
   if (onlyIds) query = query.in('candidate_id', onlyIds);
   const { data } = await query;
-  const ids = (data ?? []).map((r) => r.candidate_id as string);
-  if (ids.length === 0) return 0;
-  await db
-    .from('candidate_emails')
-    .update({ status: 'draft', test_send: false, sent_to: null, sent_at: null, resend_message_id: null, confirmed_at: null, confirmed_hash: null, sending_started_at: null, error_message: null })
-    .in('candidate_id', ids);
-  await db.from('candidates').update({ status: 'scored', stage: 'done' }).in('id', ids).eq('status', 'sent');
+  const rows = data ?? [];
+  for (const r of rows) {
+    // send_generation feeds the Resend idempotency key: a reopened send must be a NEW send, not a
+    // replay of the test-mode one that Resend would otherwise remember for 24 hours.
+    await db
+      .from('candidate_emails')
+      .update({ status: 'draft', test_send: false, sent_to: null, sent_at: null, resend_message_id: null, confirmed_at: null, confirmed_hash: null, sending_started_at: null, error_message: null, send_generation: Number(r.send_generation) + 1 })
+      .eq('candidate_id', r.candidate_id as string);
+  }
+  const ids = rows.map((r) => r.candidate_id as string);
+  if (ids.length) await db.from('candidates').update({ status: 'scored', stage: 'done' }).in('id', ids).eq('status', 'sent');
   return ids.length;
 }
 
@@ -154,7 +158,7 @@ export async function sendConfirmed(candidateId: string): Promise<SendOutcome> {
     to,
     subject: testModeRecipient() ? `[TEST] ${email.subject}` : email.subject,
     body: email.body,
-    idempotencyKey: `kargo-send-${candidateId}-${hash.slice(0, 24)}`,
+    idempotencyKey: `kargo-send-${candidateId}-g${email.send_generation ?? 0}-${hash.slice(0, 24)}`,
   });
 
   if (!result.ok) {

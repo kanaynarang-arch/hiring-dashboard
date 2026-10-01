@@ -10,6 +10,12 @@ function client(): Resend {
 // send never got this far.
 export const resendStats = { calls: 0 };
 
+// Resend's error text can quote the account owner's address; this page is public, so never store or
+// show a full email address from an upstream error.
+export function maskEmails(text: string): string {
+  return text.replace(/([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,})/g, '$1•••@$2');
+}
+
 export interface SendResult {
   ok: boolean;
   messageId?: string;
@@ -33,10 +39,10 @@ export async function sendViaResend(params: {
       { from, to: params.to, subject: params.subject, text: params.body },
       { idempotencyKey: params.idempotencyKey },
     );
-    if (error) return { ok: false, error: `${error.name}: ${error.message}`.slice(0, 300) };
+    if (error) return { ok: false, error: maskEmails(`${error.name}: ${error.message}`).slice(0, 300) };
     return { ok: true, messageId: data?.id };
   } catch (err) {
-    return { ok: false, error: (err instanceof Error ? err.message : 'Resend request failed').slice(0, 300) };
+    return { ok: false, error: maskEmails(err instanceof Error ? err.message : 'Resend request failed').slice(0, 300) };
   }
 }
 

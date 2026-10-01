@@ -35,3 +35,12 @@ test('the stored address must be MESA even in test mode (a real external candida
   assert.equal(isRecipientAllowed(null), false);
   delete process.env.EMAIL_TEST_RECIPIENT;
 });
+
+import { maskEmails } from '../src/lib/resend';
+
+test('email addresses inside upstream error text are masked', () => {
+  const masked = maskEmails('You can only send testing emails to your own email address (jane_doe@pg27.mesaschool.co). Verify a domain.');
+  assert.ok(!masked.includes('jane_doe'));
+  assert.ok(masked.includes('j•••@pg27.mesaschool.co'));
+  assert.equal(maskEmails('no address here'), 'no address here');
+});

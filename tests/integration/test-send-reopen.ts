@@ -21,6 +21,8 @@ import { Checks } from './lib';
   const { data: cs } = await db.from('candidates').select('status').eq('id', id).single();
   checks.check('draft is clean: unsent, unconfirmed, no message id', e?.status === 'draft' && !e.test_send && !e.sent_to && !e.resend_message_id && !e.confirmed_at);
   checks.check('candidate is back to scored', cs?.status === 'scored');
+  const { data: g } = await db.from('candidate_emails').select('send_generation').eq('candidate_id', id).single();
+  checks.check('send_generation was incremented, so the next send gets a fresh Resend idempotency key', Number(g?.send_generation) === 1);
 
   // a REAL send (test_send false) is never reopened
   await db.from('candidate_emails').update({ status: 'sent', test_send: false, resend_message_id: 'real' }).eq('candidate_id', id);
