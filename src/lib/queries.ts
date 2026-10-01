@@ -1,5 +1,6 @@
 import { getDb, type Role, type CandidateStatus, type EmailType, type EmailStatus } from './db';
 import { rankCandidatesForRole, TOP_N } from './ranking';
+import { isMesaTestAddress } from './send';
 
 export interface CriterionScoreView {
   criterion_id: number;
@@ -17,6 +18,7 @@ export interface EmailView {
   sent_at: string | null;
   resend_message_id: string | null;
   error_message: string | null;
+  confirmed: boolean;
 }
 
 export interface DashboardCandidate {
@@ -29,6 +31,7 @@ export interface DashboardCandidate {
   name: string | null;
   email: string | null;
   phone: string | null;
+  recipientAllowed: boolean;
   rank: number | null;
   appliedRoleScore: number | null;
   otherRoleScore: number | null;
@@ -42,6 +45,7 @@ export interface DashboardData {
   pm: DashboardCandidate[];
   spm: DashboardCandidate[];
   needsReview: DashboardCandidate[];
+  processing: number;
 }
 
 export async function getDashboardData(): Promise<DashboardData> {
@@ -105,7 +109,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     ranked.slice(0, TOP_N).forEach((r) => aboveLineByRole[role].add(r.candidate_id));
   }
 
-  const result: DashboardData = { pm: [], spm: [], needsReview: [] };
+  const result: DashboardData = { pm: [], spm: [], needsReview: [], processing: 0 };
 
   for (const c of candidates ?? []) {
     const id = c.id as string;
@@ -124,6 +128,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       name: (p?.name as string) ?? null,
       email: (p?.email as string) ?? null,
       phone: (p?.phone as string | null) ?? null,
+      recipientAllowed: isMesaTestAddress(p?.email as string | undefined),
       rank: rankByRole[role].get(id) ?? null,
       appliedRoleScore: roleScoresByCandidate.get(id)?.get(role) ?? null,
       otherRoleScore: roleScoresByCandidate.get(id)?.get(otherRole) ?? null,
@@ -139,11 +144,14 @@ export async function getDashboardData(): Promise<DashboardData> {
             sent_at: emailRow.sent_at as string | null,
             resend_message_id: emailRow.resend_message_id as string | null,
             error_message: emailRow.error_message as string | null,
+            confirmed: Boolean(emailRow.confirmed_at),
           }
         : null,
     };
 
-    if (view.status === 'needs_review') {
+    if (view.status === 'processing') {
+      result.processing += 1;
+    } else if (view.status === 'needs_review') {
       result.needsReview.push(view);
     } else if (role === 'pm') {
       result.pm.push(view);
@@ -152,8 +160,9 @@ export async function getDashboardData(): Promise<DashboardData> {
     }
   }
 
-  result.pm.sort((a, b) => (b.appliedRoleScore ?? -1) - (a.appliedRoleScore ?? -1));
-  result.spm.sort((a, b) => (b.appliedRoleScore ?? -1) - (a.appliedRoleScore ?? -1));
+  const byRank = (a: DashboardCandidate, b: DashboardCandidate) => (a.rank ?? 1e9) - (b.rank ?? 1e9);
+  result.pm.sort(byRank);
+  result.spm.sort(byRank);
 
   return result;
 }

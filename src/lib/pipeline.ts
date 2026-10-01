@@ -1,211 +1,282 @@
-import { getDb, type Role, type RubricCriterion } from './db';
-import { extractPdfText } from './pdf';
-import { deidentifyCv } from './deidentify';
+import { getDb, type EmailType, type Role, type RubricCriterion } from './db';
+import { extractPdf } from './pdf';
+import { deidentify } from './deidentify';
 import { scoreCvAgainstRubric } from './ai/scoring';
 import { generateInterviewBrief } from './ai/brief';
-import { draftCandidateEmail } from './ai/email';
-import { getTopCandidateIds } from './ranking';
+import { draftCandidateEmail, finalizeEmail } from './ai/email';
+import { getTopCandidateIds, rankCandidatesForRole } from './ranking';
 
 const ROLES: Role[] = ['pm', 'spm'];
+const STALE_PROCESSING_MS = 10 * 60 * 1000;
 
-export async function processUploadedCv(params: {
-  buffer: Buffer;
-  originalFilename: string;
-  appliedRole: Role;
-}): Promise<{ candidateId: string; status: string }> {
-  const db = getDb();
-  const rawText = await extractPdfText(params.buffer);
-
-  const { data: candidateRow, error: insertErr } = await db
+async function setStage(candidateId: string, stage: string) {
+  await getDb()
     .from('candidates')
-    .insert({
-      applied_role: params.appliedRole,
-      original_filename: params.originalFilename,
-      status: 'processing',
-    })
-    .select()
+    .update({ stage, stage_updated_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq('id', candidateId);
+}
+
+export async function createCandidate(filename: string, appliedRole: Role): Promise<string> {
+  const { data, error } = await getDb()
+    .from('candidates')
+    .insert({ applied_role: appliedRole, original_filename: filename, status: 'processing', stage: 'queued' })
+    .select('id')
     .single();
-  if (insertErr) throw insertErr;
-  const candidateId = candidateRow.id as string;
+  if (error) throw new Error(`Could not create candidate: ${error.message}`);
+  return data.id as string;
+}
 
-  const deid = deidentifyCv(rawText, params.originalFilename);
+// Moves a candidate to needs_review and removes everything derived from AI
+// work, so a flagged candidate can never retain a score, brief or draft.
+// A candidate that has already been sent is never touched.
+export async function failCandidate(candidateId: string, reason: string): Promise<void> {
+  const db = getDb();
+  const { data: row } = await db.from('candidates').select('status, applied_role').eq('id', candidateId).maybeSingle();
+  if (!row || row.status === 'sent') return;
+  await db.from('candidate_emails').delete().eq('candidate_id', candidateId);
+  await db.from('candidate_briefs').delete().eq('candidate_id', candidateId);
+  await db.from('candidate_scores').delete().eq('candidate_id', candidateId);
+  await db.from('candidate_role_scores').delete().eq('candidate_id', candidateId);
+  await db
+    .from('candidates')
+    .update({
+      status: 'needs_review',
+      stage: 'needs_review',
+      review_reason: reason.slice(0, 500),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', candidateId);
+}
 
-  // Always store whatever was found — even on failure — in the isolated
-  // PII table, for the founder's manual review. Never in a table an AI
-  // prompt is built from.
-  await db.from('candidate_pii').insert({
-    candidate_id: candidateId,
-    name: deid.name ?? '(not confidently detected — see review reason)',
-    email: deid.email ?? '(not confidently detected — see review reason)',
-    phone: deid.phone ?? null,
-    raw_cv_text: rawText,
-  });
-
-  if (!deid.ok) {
-    await db
-      .from('candidates')
-      .update({ status: 'needs_review', review_reason: deid.reason, updated_at: new Date().toISOString() })
-      .eq('id', candidateId);
-    return { candidateId, status: 'needs_review' };
+// Anything stuck mid-flight (e.g. the function was killed) is moved to a
+// terminal state, so nothing can sit in an intermediate status.
+export async function sweepStaleProcessing(): Promise<number> {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - STALE_PROCESSING_MS).toISOString();
+  const { data } = await db.from('candidates').select('id').eq('status', 'processing').lt('updated_at', cutoff);
+  for (const row of data ?? []) {
+    await failCandidate(row.id as string, 'Processing did not finish (timed out); upload the CV again.');
   }
+  return data?.length ?? 0;
+}
 
-  await db.from('candidate_redacted_cv').insert({
-    candidate_id: candidateId,
-    redacted_text: deid.redactedText!,
-  });
-
+// Runs the whole pipeline for one candidate. Never throws: every path ends in
+// scored or needs_review.
+export async function runPipeline(candidateId: string, pdf: Buffer): Promise<'scored' | 'needs_review'> {
+  const db = getDb();
   try {
-    await scoreCandidate(candidateId, deid.redactedText!);
+    const { data: cand, error: cErr } = await db
+      .from('candidates')
+      .select('applied_role, original_filename')
+      .eq('id', candidateId)
+      .single();
+    if (cErr || !cand) throw new Error('Candidate row not found');
+    const role = cand.applied_role as Role;
+
+    await setStage(candidateId, 'extracting');
+    let extracted;
+    try {
+      extracted = await extractPdf(pdf);
+    } catch (err) {
+      await failCandidate(candidateId, `The PDF could not be read: ${err instanceof Error ? err.message : 'unknown error'}`.slice(0, 300));
+      return 'needs_review';
+    }
+
+    await setStage(candidateId, 'deidentifying');
+    const deid = deidentify({
+      rawText: extracted.text,
+      filename: cand.original_filename as string,
+      pdfTitle: extracted.title,
+      pdfAuthor: extracted.author,
+    });
+
+    // PII (and the raw text) goes to its own table in every case, including failure,
+    // so a reviewer can handle it. Nothing in that table ever reaches a model.
+    const { error: piiErr } = await db.from('candidate_pii').upsert({
+      candidate_id: candidateId,
+      name: deid.ok ? deid.name : null,
+      email: deid.email,
+      phone: deid.phone,
+      raw_cv_text: extracted.text,
+    });
+    if (piiErr) throw new Error(`Could not store personal details: ${piiErr.message}`);
+
+    if (!deid.ok) {
+      await failCandidate(candidateId, deid.reason);
+      return 'needs_review';
+    }
+    const { error: redErr } = await db
+      .from('candidate_redacted_cv')
+      .upsert({ candidate_id: candidateId, redacted_text: deid.redactedText });
+    if (redErr) throw new Error(`Could not store de-identified text: ${redErr.message}`);
+
+    await setStage(candidateId, 'scoring');
+    await scoreCandidate(candidateId, deid.redactedText);
     await db
       .from('candidates')
-      .update({ status: 'scored', updated_at: new Date().toISOString() })
+      .update({ status: 'scored', stage: 'drafting', updated_at: new Date().toISOString() })
       .eq('id', candidateId);
-    await refreshRoleRanking(params.appliedRole);
-    return { candidateId, status: 'scored' };
+
+    await reconcileRole(role);
+
+    const { data: final } = await db.from('candidates').select('status').eq('id', candidateId).single();
+    if (final?.status === 'scored') {
+      await setStage(candidateId, 'done');
+      return 'scored';
+    }
+    return 'needs_review';
   } catch (err) {
-    // De-identification succeeded, but the AI scoring step failed (e.g. an
-    // outage). Surface it as a flagged row rather than leaving the
-    // candidate stuck in 'processing' with no visible status.
-    const message = err instanceof Error ? err.message : 'Unknown scoring error';
-    await db
-      .from('candidates')
-      .update({
-        status: 'needs_review',
-        review_reason: `Scoring failed: ${message}`,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', candidateId);
-    return { candidateId, status: 'needs_review' };
+    const message = err instanceof Error ? err.message : 'unknown error';
+    await failCandidate(candidateId, `Pipeline stopped: ${message}`).catch(() => {});
+    return 'needs_review';
   }
+}
+
+export async function processCv(params: { buffer: Buffer; filename: string; role: Role }) {
+  const id = await createCandidate(params.filename, params.role);
+  const status = await runPipeline(id, params.buffer);
+  return { id, status };
 }
 
 async function scoreCandidate(candidateId: string, redactedText: string): Promise<void> {
   const db = getDb();
-
-  const { data: allCriteria, error } = await db
-    .from('rubric_criteria')
-    .select('*')
-    .order('sort_order', { ascending: true });
+  const { data: allCriteria, error } = await db.from('rubric_criteria').select('*').order('sort_order');
   if (error) throw error;
 
-  for (const role of ROLES) {
-    const criteria = (allCriteria as RubricCriterion[]).filter((c) => c.role === role);
-    const results = await scoreCvAgainstRubric(redactedText, role, criteria);
+  // Both rubrics, always, regardless of the role applied for.
+  const perRole = await Promise.all(
+    ROLES.map(async (role) => {
+      const criteria = (allCriteria as RubricCriterion[]).filter((c) => c.role === role);
+      if (criteria.length === 0) throw new Error(`No rubric criteria found for ${role}; run scripts/seed-rubric.ts`);
+      const results = await scoreCvAgainstRubric(candidateId, redactedText, role, criteria);
+      const weightById = new Map(criteria.map((c) => [c.id, Number(c.weight)]));
+      const totalWeight = criteria.reduce((s, c) => s + Number(c.weight), 0);
+      const weighted = results.reduce((s, r) => s + (r.score / 10) * (weightById.get(r.criterion_id) ?? 0), 0);
+      return { role, results, total: Math.round((weighted / totalWeight) * 100 * 100) / 100 };
+    }),
+  );
 
-    const rows = results.map((r) => ({
-      candidate_id: candidateId,
-      role,
-      criterion_id: r.criterion_id,
-      score: r.score,
-      reason: r.reason,
-    }));
-    const { error: insErr } = await db.from('candidate_scores').insert(rows);
-    if (insErr) throw insErr;
-
-    const weightById = new Map(criteria.map((c) => [c.id, Number(c.weight)]));
-    const totalWeight = criteria.reduce((sum, c) => sum + Number(c.weight), 0);
-    const weightedSum = results.reduce((sum, r) => {
-      const weight = weightById.get(r.criterion_id) ?? 0;
-      return sum + (r.score / 10) * weight;
-    }, 0);
-    // Normalized to a 0-100 scale even if weights don't sum to exactly 100.
-    const totalScore = totalWeight > 0 ? (weightedSum / totalWeight) * 100 : 0;
-
-    const { error: totErr } = await db
+  for (const { role, results, total } of perRole) {
+    const { error: sErr } = await db.from('candidate_scores').upsert(
+      results.map((r) => ({ candidate_id: candidateId, role, criterion_id: r.criterion_id, score: r.score, reason: r.reason })),
+      { onConflict: 'candidate_id,role,criterion_id' },
+    );
+    if (sErr) throw new Error(`Could not store scores: ${sErr.message}`);
+    const { error: tErr } = await db
       .from('candidate_role_scores')
-      .insert({ candidate_id: candidateId, role, total_score: totalScore });
-    if (totErr) throw totErr;
+      .upsert({ candidate_id: candidateId, role, total_score: total }, { onConflict: 'candidate_id,role' });
+    if (tErr) throw new Error(`Could not store totals: ${tErr.message}`);
   }
 }
 
-// Recomputes the top-5 for a role and generates briefs/email drafts for
-// anyone whose above-the-line status is newly decided. A candidate whose
-// email has already been sent is never touched again, even if a later,
-// higher-scoring upload bumps them out of the top 5 — sending is final.
-export async function refreshRoleRanking(role: Role): Promise<void> {
+// Makes briefs and drafts match the current ranking for a role: the top 5 get
+// a brief and an invite, every other scored candidate gets a rejection and no
+// brief. Candidates already sent are left alone. A candidate whose brief or
+// draft cannot be produced is moved to needs_review (which purges its scores),
+// and the ranking is then re-evaluated, since that can change who is top 5.
+export async function reconcileRole(role: Role): Promise<void> {
   const db = getDb();
-  const topIds = await getTopCandidateIds(role);
+  for (let pass = 0; pass < 6; pass++) {
+    const top = await getTopCandidateIds(role);
+    const { data: rows, error } = await db
+      .from('candidates')
+      .select('id')
+      .eq('applied_role', role)
+      .eq('status', 'scored');
+    if (error) throw error;
 
-  const { data: candidates, error } = await db
-    .from('candidates')
-    .select('id, status')
-    .eq('applied_role', role)
-    .in('status', ['scored', 'sent']);
-  if (error) throw error;
-
-  for (const candidate of candidates ?? []) {
-    const candidateId = candidate.id as string;
-    if (candidate.status === 'sent') continue;
-
-    const isAboveLine = topIds.has(candidateId);
-
-    const { data: existingBrief } = await db
-      .from('candidate_briefs')
-      .select('candidate_id')
-      .eq('candidate_id', candidateId)
-      .maybeSingle();
-
-    if (isAboveLine && !existingBrief) {
-      await generateAndStoreBrief(candidateId, role);
-    } else if (!isAboveLine && existingBrief) {
-      await db.from('candidate_briefs').delete().eq('candidate_id', candidateId);
-    }
-
-    const desiredEmailType = isAboveLine ? 'invite' : 'rejection';
-    const { data: existingEmail } = await db
-      .from('candidate_emails')
-      .select('candidate_id, email_type, status')
-      .eq('candidate_id', candidateId)
-      .maybeSingle();
-
-    if (!existingEmail) {
-      await generateAndStoreEmailDraft(candidateId, role, desiredEmailType);
-    } else if (existingEmail.status === 'draft' && existingEmail.email_type !== desiredEmailType) {
-      await generateAndStoreEmailDraft(candidateId, role, desiredEmailType);
-    }
+    let failures = 0;
+    await runLimited((rows ?? []).map((r) => r.id as string), 4, async (id) => {
+      try {
+        await reconcileCandidate(id, role, top.has(id));
+      } catch (err) {
+        failures += 1;
+        await failCandidate(id, `Brief/draft generation failed: ${err instanceof Error ? err.message : 'unknown error'}`);
+      }
+    });
+    if (failures === 0) return;
   }
+  throw new Error('Ranking did not settle after repeated failures.');
 }
 
-async function generateAndStoreBrief(candidateId: string, role: Role): Promise<void> {
+async function runLimited<T>(items: T[], limit: number, fn: (item: T) => Promise<void>) {
+  const queue = [...items];
+  await Promise.all(
+    Array.from({ length: Math.min(limit, queue.length) }, async () => {
+      while (queue.length) await fn(queue.shift() as T);
+    }),
+  );
+}
+
+async function reconcileCandidate(candidateId: string, role: Role, isTop: boolean): Promise<void> {
   const db = getDb();
-  const [{ data: redacted }, { data: scores }, { data: criteria }] = await Promise.all([
-    db.from('candidate_redacted_cv').select('redacted_text').eq('candidate_id', candidateId).single(),
-    db.from('candidate_scores').select('criterion_id, score, reason').eq('candidate_id', candidateId).eq('role', role),
-    db.from('rubric_criteria').select('id, name').eq('role', role),
+  const [{ data: brief }, { data: email }] = await Promise.all([
+    db.from('candidate_briefs').select('candidate_id').eq('candidate_id', candidateId).maybeSingle(),
+    db.from('candidate_emails').select('email_type, status').eq('candidate_id', candidateId).maybeSingle(),
   ]);
-  if (!redacted) return;
+  const wanted: EmailType = isTop ? 'invite' : 'rejection';
+  const emailStale = !email || (email.email_type !== wanted && (email.status === 'draft' || email.status === 'failed'));
 
-  const nameById = new Map((criteria ?? []).map((c) => [c.id, c.name as string]));
-  const scoreList = (scores ?? []).map((s) => ({
-    name: nameById.get(s.criterion_id) ?? `criterion ${s.criterion_id}`,
-    score: Number(s.score),
-    reason: s.reason as string,
-  }));
+  if (!isTop && brief) await db.from('candidate_briefs').delete().eq('candidate_id', candidateId);
 
-  const briefText = await generateInterviewBrief(redacted.redacted_text, role, scoreList);
-  await db.from('candidate_briefs').upsert({ candidate_id: candidateId, brief_text: briefText });
+  if (!isTop && !emailStale && !brief) return;
+  if (isTop && brief && !emailStale) return;
+
+  const { data: red } = await db.from('candidate_redacted_cv').select('redacted_text').eq('candidate_id', candidateId).single();
+  const { data: pii } = await db.from('candidate_pii').select('name').eq('candidate_id', candidateId).single();
+  if (!red || !pii?.name) throw new Error('De-identified text or name missing');
+
+  if (isTop && !brief) {
+    const [{ data: scores }, { data: criteria }] = await Promise.all([
+      db.from('candidate_scores').select('criterion_id, score, reason').eq('candidate_id', candidateId).eq('role', role),
+      db.from('rubric_criteria').select('id, name').eq('role', role),
+    ]);
+    const nameById = new Map((criteria ?? []).map((c) => [c.id as number, c.name as string]));
+    const text = await generateInterviewBrief(
+      candidateId,
+      red.redacted_text as string,
+      role,
+      (scores ?? []).map((s) => ({
+        name: nameById.get(s.criterion_id as number) ?? 'criterion',
+        score: Number(s.score),
+        reason: s.reason as string,
+      })),
+    );
+    // Re-check just before writing: the ranking may have moved while the model was working.
+    if (!(await getTopCandidateIds(role)).has(candidateId)) return;
+    await db.from('candidate_briefs').upsert({ candidate_id: candidateId, brief_text: text });
+  }
+
+  if (emailStale) {
+    const draft = finalizeEmail(await draftCandidateEmail(candidateId, red.redacted_text as string, role, wanted), pii.name as string);
+    if ((await getTopCandidateIds(role)).has(candidateId) !== isTop) return;
+    await saveDraft(candidateId, wanted, draft);
+  }
 }
 
-async function generateAndStoreEmailDraft(
-  candidateId: string,
-  role: Role,
-  emailType: 'invite' | 'rejection',
-): Promise<void> {
+// Never overwrites an email that is being sent or has been sent.
+async function saveDraft(candidateId: string, type: EmailType, draft: { subject: string; body: string }) {
   const db = getDb();
-  const { data: redacted } = await db
-    .from('candidate_redacted_cv')
-    .select('redacted_text')
-    .eq('candidate_id', candidateId)
-    .single();
-  if (!redacted) return;
-
-  const draft = await draftCandidateEmail(redacted.redacted_text, role, emailType);
-
-  await db.from('candidate_emails').upsert({
-    candidate_id: candidateId,
-    email_type: emailType,
+  const fields = {
+    email_type: type,
     subject: draft.subject,
     body: draft.body,
     status: 'draft',
-  });
+    confirmed_at: null,
+    confirmed_hash: null,
+    error_message: null,
+    updated_at: new Date().toISOString(),
+  };
+  const { error: insErr } = await db
+    .from('candidate_emails')
+    .upsert({ candidate_id: candidateId, ...fields }, { onConflict: 'candidate_id', ignoreDuplicates: true });
+  if (insErr) throw new Error(`Could not save draft: ${insErr.message}`);
+  const { error: updErr } = await db
+    .from('candidate_emails')
+    .update(fields)
+    .eq('candidate_id', candidateId)
+    .in('status', ['draft', 'failed']);
+  if (updErr) throw new Error(`Could not update draft: ${updErr.message}`);
 }
+
+export { rankCandidatesForRole };

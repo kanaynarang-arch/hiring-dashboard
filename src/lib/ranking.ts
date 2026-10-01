@@ -7,18 +7,18 @@ export interface RankedCandidate {
   total_score: number;
 }
 
-// Ranks every scored (or already-sent) candidate who applied to `role`,
-// using only that role's own total_score — never the other role's.
+// Ranks the candidates who APPLIED for `role`, by that role's own rubric total.
+// Only status scored or sent is ranked: a needs_review (or still-processing)
+// candidate has no score and is never ranked, never promoted to fill a slot.
+// Ties are broken by earlier upload, then id, so the order is deterministic.
 export async function rankCandidatesForRole(role: Role): Promise<RankedCandidate[]> {
   const db = getDb();
-
-  const { data: candidates, error: cErr } = await db
+  const { data: candidates, error } = await db
     .from('candidates')
-    .select('id')
+    .select('id, created_at')
     .eq('applied_role', role)
     .in('status', ['scored', 'sent']);
-  if (cErr) throw cErr;
-
+  if (error) throw error;
   const ids = (candidates ?? []).map((c) => c.id as string);
   if (ids.length === 0) return [];
 
@@ -29,9 +29,15 @@ export async function rankCandidatesForRole(role: Role): Promise<RankedCandidate
     .in('candidate_id', ids);
   if (sErr) throw sErr;
 
+  const createdAt = new Map((candidates ?? []).map((c) => [c.id as string, c.created_at as string]));
   return (scores ?? [])
     .map((s) => ({ candidate_id: s.candidate_id as string, total_score: Number(s.total_score) }))
-    .sort((a, b) => b.total_score - a.total_score);
+    .sort(
+      (a, b) =>
+        b.total_score - a.total_score ||
+        createdAt.get(a.candidate_id)!.localeCompare(createdAt.get(b.candidate_id)!) ||
+        a.candidate_id.localeCompare(b.candidate_id),
+    );
 }
 
 export async function getTopCandidateIds(role: Role, limit = TOP_N): Promise<Set<string>> {
