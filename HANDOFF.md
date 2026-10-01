@@ -5,35 +5,31 @@ Nothing in this file is a secret. Items marked **UNVERIFIED** were not checked b
 
 ## Blocked: needs you (in this order)
 
-### 1. Verify a sending domain in Resend so real candidates can be emailed
-The Resend key is now set (a **Sending access** key named `kargo-hiring-dashboard`, stored in
-`.env.local` and in Vercel for production/preview/development, production redeployed). The real send
-path is **verified end to end on the live site**: for a made-up candidate whose address was yours
-(`kanay_narang@pg27.mesaschool.co`, the login address of the Resend team "mesaschool"), Confirm then
-Send returned a Resend message id in about 4 s, the email and candidate rows became `sent`, the real
-name was in the body, and a second click sent nothing.
+### 1. Resend runs in TEST MODE (no domain); verify a domain only to email real candidates
+The course material asks for a free Resend account and for Confirm to send to "the MESA test address".
+A Resend account with no verified domain can only deliver to its owner's address
+(`kanay_narang@pg27.mesaschool.co`), so production has `EMAIL_TEST_RECIPIENT` set to that address:
+every Confirm & send goes to **your inbox** with `[TEST]` in the subject, and the dashboard shows a
+banner saying so. Candidates are **not** emailed.
 
-But this Resend team has **no verified domain**, and `EMAIL_FROM` is Resend's sandbox sender, which
-Resend only lets deliver to that one address. Confirm & send for the 60 real candidates (all
-`squad_N@pg27.mesaschool.co`) therefore fails with Resend's *"You can only send testing emails to your
-own email address"* error until you do this (DNS access is needed, so I can't):
-1. Resend → Domains → Add domain, add the DNS records it shows at your DNS provider, wait for Verified.
-2. Set `EMAIL_FROM` to an address on it, locally and in production, and redeploy:
-   ```bash
-   vercel env add EMAIL_FROM production --force   # e.g. Kargo Hiring <hiring@your-domain>
-   ```
-3. Prove it (this sends one real email to the top candidate's MESA test address):
-   ```bash
-   BASE_URL=https://hiring-dashboard-sandy-omega.vercel.app \
-     npx tsx --env-file=.env.local tests/integration/final.ts "<folder of the 60 CV PDFs>"
-   ```
-A failed send leaves the draft as *Failed - retry* with Resend's message; nothing is lost.
+Verified on the live site: Confirm on the real top PM candidate returned Resend message
+`01a0f77a-8d32-768d-93c3-359816ca8c7c`, the candidate is `sent` in Supabase, the body has the real name,
+and a second click sends nothing. Gotcha: **that candidate now shows Sent and must not be re-sent**
+(Resend's idempotency key returns the original message for 24 hours instead of sending again). Test your
+own clicks on any other candidate.
 
-### 2. UNVERIFIED: the email reaching the inbox within 30 seconds
-I cannot read the inbox. Check `kanay_narang@pg27.mesaschool.co` for a test message addressed to
-"Jane Roe" (Resend message id `01a0f76d-0916-7c9c-8a4f-0482d528b619`) and note when it arrived relative to
-the send. Delivery status can't be read through the API because the key is sending-only; use a
-full-access key if you want the tests to check Resend's `delivered` event automatically.
+To email real candidates later (needs DNS access, so I can't): Resend -> Domains -> Add domain, add the
+SPF/DKIM records, set `EMAIL_FROM` to an address on it, then **remove** `EMAIL_TEST_RECIPIENT`
+(`vercel env rm EMAIL_TEST_RECIPIENT production`) and redeploy.
+
+### 2. UNVERIFIED: inbox arrival time and spam placement
+I cannot read the inbox. Look for the `[TEST]` message(s) in `kanay_narang@pg27.mesaschool.co`. The
+first test email (to "Jane Roe") landed in **spam**: the sandbox sender `onboarding@resend.dev` is a shared
+address with no SPF/DKIM/DMARC for your own domain, and nothing in the course material addresses this.
+Without a domain the only fixes are on the receiving side: mark the message "Not spam", or in Gmail create
+a filter *from onboarding@resend.dev -> Never send to Spam* (I did not create it; it is a persistent mailbox
+rule and needs your OK). A verified domain is the proper fix. Delivery status can't be read by the API
+because the key is sending-only.
 
 ### 3. Vercel blocks Git-triggered deployments (production was deployed by CLI)
 Every push to `main` creates a deployment with status **Blocked**: *"the commit author doesn't have
@@ -75,7 +71,7 @@ and `vercel env add <NAME> production --force`, then redeploy. No secret is in t
 - The stored name/email/phone appear nowhere in any stored de-identified CV text (60/60).
 - Adversarial tests 3a-3f pass (34 checks), including the real Gemini request payloads.
 - Live deployment: two new CVs reached a complete terminal state in 27-43 s (three runs).
-- Live send: Confirm then Send to a MESA address (yours) returned a Resend message id; see item 1.
+- Live send: Confirm on the real top PM candidate, in test mode, returned a Resend message id and marked it sent; see item 1.
 
 ## Notes
 
