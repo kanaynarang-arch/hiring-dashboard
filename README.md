@@ -176,7 +176,7 @@ test data: they are never copied into the repo or logged.
 
 ## Deployment
 
-Production: https://hiring-dashboard-sandy-omega.vercel.app (Vercel project `kanay-mesa/hiring-dashboard`).
+Production: https://kargo-talent.vercel.app (also reachable at https://hiring-dashboard-sandy-omega.vercel.app; Vercel project `kanay-mesa/hiring-dashboard`).
 
 Set the variables above for the Production environment (`vercel env add NAME production`); `EMAIL_TEST_RECIPIENT` is optional.
 `next.config.ts` keeps `pdf-parse`/`pdfjs-dist`/`@napi-rs/canvas` external and explicitly traces them
