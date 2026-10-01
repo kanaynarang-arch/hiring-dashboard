@@ -1,14 +1,9 @@
 import { Resend } from 'resend';
 
-let _resend: Resend | null = null;
-
-function getResend(): Resend {
-  if (!_resend) {
-    const key = process.env.RESEND_API_KEY;
-    if (!key) throw new Error('RESEND_API_KEY must be set');
-    _resend = new Resend(key);
-  }
-  return _resend;
+function client(): Resend {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) throw new Error('RESEND_API_KEY is not set.');
+  return new Resend(key);
 }
 
 export interface SendResult {
@@ -17,29 +12,30 @@ export interface SendResult {
   error?: string;
 }
 
-// idempotencyKey is passed through to Resend so a network-level retry of
-// the same request can never result in two sends of the same email.
-export async function sendEmail(params: {
+// Only ever called from sendConfirmed() in send.ts, after the persisted
+// confirmation, recipient and claim checks. The idempotency key makes a
+// retried request return the original message instead of sending again.
+export async function sendViaResend(params: {
   to: string;
   subject: string;
   body: string;
   idempotencyKey: string;
 }): Promise<SendResult> {
   const from = process.env.EMAIL_FROM;
-  if (!from) return { ok: false, error: 'EMAIL_FROM is not configured' };
-
-  const { data, error } = await getResend().emails.send(
-    {
-      from,
-      to: params.to,
-      subject: params.subject,
-      text: params.body,
-    },
-    { idempotencyKey: params.idempotencyKey },
-  );
-
-  if (error) {
-    return { ok: false, error: error.message };
+  if (!from) return { ok: false, error: 'EMAIL_FROM is not set.' };
+  try {
+    const { data, error } = await client().emails.send(
+      { from, to: params.to, subject: params.subject, text: params.body },
+      { idempotencyKey: params.idempotencyKey },
+    );
+    if (error) return { ok: false, error: `${error.name}: ${error.message}`.slice(0, 300) };
+    return { ok: true, messageId: data?.id };
+  } catch (err) {
+    return { ok: false, error: (err instanceof Error ? err.message : 'Resend request failed').slice(0, 300) };
   }
-  return { ok: true, messageId: data?.id };
+}
+
+export async function getResendDeliveryStatus(messageId: string): Promise<string | null> {
+  const { data } = await client().emails.get(messageId);
+  return (data as { last_event?: string } | null)?.last_event ?? null;
 }
