@@ -36,6 +36,22 @@ export interface SendOutcome {
 
 const fail = (error: SendError, message: string, httpStatus: number): SendOutcome => ({ ok: false, error, message, httpStatus });
 
+// Atomic claim (compare-and-swap on the persisted status). A concurrent or
+// repeated click finds nothing to claim. A claim abandoned for 2 minutes can be
+// retaken; the Resend idempotency key prevents a second message anyway.
+export async function claimForSending(candidateId: string, hash: string): Promise<boolean> {
+  const staleCutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+  const { data } = await getDb()
+    .from('candidate_emails')
+    .update({ status: 'sending', sending_started_at: new Date().toISOString(), error_message: null })
+    .eq('candidate_id', candidateId)
+    .eq('confirmed_hash', hash)
+    .or(`status.in.(draft,failed),and(status.eq.sending,sending_started_at.lt.${staleCutoff})`)
+    .select('candidate_id')
+    .maybeSingle();
+  return Boolean(data);
+}
+
 async function loadForSend(candidateId: string) {
   const db = getDb();
   const [{ data: cand }, { data: email }, { data: pii }] = await Promise.all([
@@ -89,19 +105,9 @@ export async function sendConfirmed(candidateId: string): Promise<SendOutcome> {
     return fail('not_confirmed', 'This draft has not been confirmed (or it changed after confirmation).', 409);
   }
 
-  // Atomic claim (compare-and-swap on the persisted status). A concurrent or
-  // repeated click finds nothing to claim. A claim abandoned for 2 minutes can
-  // be retaken; the Resend idempotency key prevents a second message anyway.
-  const staleCutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();
-  const { data: claimed } = await db
-    .from('candidate_emails')
-    .update({ status: 'sending', sending_started_at: new Date().toISOString(), error_message: null })
-    .eq('candidate_id', candidateId)
-    .eq('confirmed_hash', hash)
-    .or(`status.in.(draft,failed),and(status.eq.sending,sending_started_at.lt.${staleCutoff})`)
-    .select('candidate_id')
-    .maybeSingle();
-  if (!claimed) return fail('in_progress', 'This email is already being sent or has been sent.', 409);
+  if (!(await claimForSending(candidateId, hash))) {
+    return fail('in_progress', 'This email is already being sent or has been sent.', 409);
+  }
 
   const result = await sendViaResend({
     to,

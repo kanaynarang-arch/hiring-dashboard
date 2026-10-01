@@ -6,6 +6,10 @@ function client(): Resend {
   return new Resend(key);
 }
 
+// Incremented on every attempt to reach Resend; tests use it to prove a refused
+// send never got this far.
+export const resendStats = { calls: 0 };
+
 export interface SendResult {
   ok: boolean;
   messageId?: string;
@@ -21,6 +25,7 @@ export async function sendViaResend(params: {
   body: string;
   idempotencyKey: string;
 }): Promise<SendResult> {
+  resendStats.calls += 1;
   const from = process.env.EMAIL_FROM;
   if (!from) return { ok: false, error: 'EMAIL_FROM is not set.' };
   try {
