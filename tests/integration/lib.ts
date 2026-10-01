@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { getDb, type Role } from '../../src/lib/db';
+import { extractPdf } from '../../src/lib/pdf';
 
 export const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3100';
 
@@ -10,20 +11,35 @@ export function cvDir(): string {
   return dir;
 }
 
-export function listCvs(dir: string) {
-  return readdirSync(dir)
-    .filter((f) => f.toLowerCase().endsWith('.pdf'))
-    .sort()
-    .map((f) => ({ file: f, path: path.join(dir, f), role: roleFor(f) }));
+// Applied role for the test CVs. pm_* / spm_* are labelled. The unlabelled NN_name.pdf files have no
+// stated role, so it is inferred from the experience the CV states, against the JD bands (PM 2-4 years,
+// SPM 5-8): the largest "N years" figure, <= 4 means PM, >= 5 means SPM. CVs that state no figure fall
+// back to the file number (01-15 PM, 16-30 SPM). A real founder selects the role in the upload form.
+export function statedYears(text: string): number | null {
+  const nums = [...text.matchAll(/(?<!\d)(\d{1,2})\s*\+?\s*(?:years|yrs)\b/gi)].map((m) => Number(m[1])).filter((n) => n >= 1 && n <= 25);
+  return nums.length ? Math.max(...nums) : null;
 }
 
-// pm_* / spm_* are labelled. Unlabelled NN_name.pdf files follow the same
-// numbering convention: 01-15 applied for PM, 16-30 for SPM.
+export function roleFromStatedYears(years: number | null, fallback: Role): Role {
+  return years === null ? fallback : years <= 4 ? 'pm' : 'spm';
+}
+
 export function roleFor(file: string): Role {
   if (file.startsWith('pm_')) return 'pm';
   if (file.startsWith('spm_')) return 'spm';
-  const n = Number(file.slice(0, 2));
-  return n <= 15 ? 'pm' : 'spm';
+  return Number(file.slice(0, 2)) <= 15 ? 'pm' : 'spm';
+}
+
+export async function listCvs(dir: string) {
+  const files = readdirSync(dir).filter((f) => f.toLowerCase().endsWith('.pdf')).sort();
+  return Promise.all(
+    files.map(async (file) => {
+      const p = path.join(dir, file);
+      const labelled = file.startsWith('pm_') || file.startsWith('spm_');
+      const role = labelled ? roleFor(file) : roleFromStatedYears(statedYears((await extractPdf(readFileSync(p))).text), roleFor(file));
+      return { file, path: p, role };
+    }),
+  );
 }
 
 export async function uploadHttp(buffer: Buffer, filename: string, role: Role): Promise<string> {

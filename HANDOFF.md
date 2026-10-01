@@ -73,6 +73,12 @@ and `vercel env add <NAME> production --force`, then redeploy. No secret is in t
 
 ## Notes
 
+- **Roles of the 30 unlabelled CVs are inferred, not given.** The course folder does not say which role
+  they applied for. I assigned them from stated experience (<=4 years PM, >=5 SPM); 7 CVs (files 06, 09, 12,
+  15, 16, 22, 25) state no figure and kept the file-number fallback. If you know the real roles, tell me and
+  I will re-assign and rebuild the rankings, briefs and drafts (no re-scoring needed). Current split:
+  25 PM, 35 SPM.
+
 - Scores can differ by a few points between runs of the same CV (the model runs at its default
   temperature, as Google recommends for Gemini 3).
 - Test data is left in the database (60 scored candidates) so the dashboard is populated. To start

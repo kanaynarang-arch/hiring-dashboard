@@ -9,7 +9,7 @@ import { verifyDatabase } from './verify-db';
 
 (async () => {
   const concurrency = Number(process.argv.find((a) => a.startsWith('--concurrency='))?.split('=')[1] ?? 3);
-  const cvs = listCvs(cvDir());
+  const cvs = await listCvs(cvDir());
   console.log(`${cvs.length} CVs, concurrency ${concurrency}`);
   await clearAllCandidates();
   const t0 = Date.now();

@@ -196,8 +196,13 @@ See `HANDOFF.md` for the open items.
    by earlier upload. A candidate already sent keeps their slot.
 2. **Top 5 vs "invite the top one".** The rule is top 5 *per role*. With five or fewer scored
    candidates in a role, all of them are above the line and get a brief and an invite.
-3. **Unlabelled test CVs.** Files named `NN_name.pdf` follow the same numbering as `pm_`/`spm_`:
-   01-15 applied for PM, 16-30 for SPM. Only the test harness uses this.
+3. **Unlabelled test CVs.** Files named `NN_name.pdf` carry no stated role (the course folder gives no
+   key). Their applied role was inferred from the experience each CV states, against the JD bands: the
+   largest "N years" figure, 4 or fewer is PM, 5 or more is SPM (23 of the 30 state a figure; 11 moved
+   from my earlier 01-15 PM / 16-30 SPM guess, giving 25 PM and 35 SPM in total). The 7 that state no figure
+   (files 06, 09, 12, 15, 16, 22, 25) keep the number-based fallback. This is a rough proxy, only used by
+   the test harness; in the product the founder selects the role at upload. Scores for both rubrics are
+   stored for everyone, so correcting a role only needs a re-rank (no re-scoring).
 4. **Model.** `gemini-3.8-flash` (all Flash 3.x models were probed and returned valid structured
    output; this was the newest and fastest). One identifier, in `.env.example`; none in code.
    Temperature is left at the model default (Google advises this for Gemini 3), so scores can vary a
