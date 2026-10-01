@@ -4,7 +4,7 @@ import { deidentify } from './deidentify';
 import { scoreCvAgainstRubric } from './ai/scoring';
 import { generateInterviewBrief } from './ai/brief';
 import { draftCandidateEmail, finalizeEmail } from './ai/email';
-import { getTopCandidateIds, rankCandidatesForRole } from './ranking';
+import { getTopCandidateIds, rankCandidatesForRole, SCORED_FILTER } from './ranking';
 
 const ROLES: Role[] = ['pm', 'spm'];
 const STALE_PROCESSING_MS = 10 * 60 * 1000;
@@ -112,19 +112,21 @@ export async function runPipeline(candidateId: string, pdf: Buffer): Promise<'sc
 
     await setStage(candidateId, 'scoring');
     await scoreCandidate(candidateId, deid.redactedText);
-    await db
-      .from('candidates')
-      .update({ status: 'scored', stage: 'drafting', updated_at: new Date().toISOString() })
-      .eq('id', candidateId);
+    // Scores are stored; the candidate stays 'processing' (and counts in the
+    // ranking) until its brief/draft exist. Only then is it 'scored'.
+    await setStage(candidateId, 'drafting');
 
     await reconcileRole(role);
 
     const { data: final } = await db.from('candidates').select('status').eq('id', candidateId).single();
-    if (final?.status === 'scored') {
-      await setStage(candidateId, 'done');
+    if (final?.status === 'processing') {
+      await db
+        .from('candidates')
+        .update({ status: 'scored', stage: 'done', updated_at: new Date().toISOString() })
+        .eq('id', candidateId);
       return 'scored';
     }
-    return 'needs_review';
+    return final?.status === 'needs_review' ? 'needs_review' : 'scored';
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown error';
     await failCandidate(candidateId, `Pipeline stopped: ${message}`).catch(() => {});
@@ -182,7 +184,8 @@ export async function reconcileRole(role: Role): Promise<void> {
       .from('candidates')
       .select('id')
       .eq('applied_role', role)
-      .eq('status', 'scored');
+      .or(SCORED_FILTER)
+      .neq('status', 'sent');
     if (error) throw error;
 
     let failures = 0;
