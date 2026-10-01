@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- test helper over untyped Supabase rows */
 // Verifies the PERSISTED state of the whole database against the requirements.
 import { getDb, type Role } from '../../src/lib/db';
 import { assertNoLeak, nameTokens } from '../../src/lib/leakcheck';
@@ -51,7 +52,7 @@ export async function verifyDatabase(checks: Checks, expect?: { scored?: number;
     const id = c.id as string;
     const s = (scoresBy.get(id) ?? []) as any[];
     const t = (totalsBy.get(id) ?? []) as any[];
-    let ok = s.length === 8 && s.every((x) => String(x.reason).trim().length >= 10 && !String(x.reason).includes('\n') && Number(x.score) >= 0 && Number(x.score) <= 10 && critById.get(x.criterion_id)?.role === x.role);
+    const ok = s.length === 8 && s.every((x) => String(x.reason).trim().length >= 10 && !String(x.reason).includes('\n') && Number(x.score) >= 0 && Number(x.score) <= 10 && critById.get(x.criterion_id)?.role === x.role);
     if (ok && (['pm', 'spm'] as Role[]).every((r) => s.filter((x) => x.role === r).length === 4)) scoreOk++; else problems.push(`${c.original_filename}: scores`);
     let totOk = t.length === 2;
     for (const role of ['pm', 'spm'] as Role[]) {

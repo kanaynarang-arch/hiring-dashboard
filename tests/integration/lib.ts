@@ -83,7 +83,11 @@ export class Checks {
 
 export function readPdf(p: string): Buffer { return readFileSync(p); }
 
+// Deletes EVERY candidate (and, by cascade, all scores, briefs and drafts). Refuses unless explicitly allowed.
 export async function clearAllCandidates() {
+  if (process.env.ALLOW_WIPE !== '1') {
+    throw new Error('This test deletes ALL candidates. Re-run with ALLOW_WIPE=1 if that is what you want.');
+  }
   const { error } = await getDb().from('candidates').delete().not('id', 'is', null);
   if (error) throw error;
 }

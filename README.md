@@ -57,8 +57,9 @@ persisted) or `needs_review` (with a stored reason). Nothing is left half-done.
 | `candidate_briefs` | the three-sentence brief (top 5 per role only) |
 | `candidate_emails` | draft or sent email, confirmation, send status, Resend message id, error |
 
-RLS is enabled on every table with **no policies**. Only the server, using the service-role key,
-can read or write. The browser never talks to Supabase. SQL is in `supabase/migrations/`.
+RLS is enabled on every table with **no policies**, and the `anon`/`authenticated` API roles hold no table
+privileges at all (migration `0004`). Only the server, using the service-role key, can read or write.
+The browser never talks to Supabase. SQL is in `supabase/migrations/`.
 
 ### Statuses
 
@@ -95,6 +96,8 @@ The terminal ones are `scored`, `needs_review` and `sent`. `candidate_emails.sta
   default and no fallback model**; if it is missing or the API fails, that is an error and the
   candidate goes to `needs_review`. `src/lib/ai/model.ts` additionally refuses any request made
   outside a leak-checked candidate context or to a different model.
+* Rate limits and transient errors (429/5xx) are retried up to 5 times on the **same** model with the SDK's
+  exponential backoff (2 s, 4 s, 8 s, 16 s, 32 s); if it still fails the candidate goes to `needs_review`.
 * Outputs are validated with zod and in code: exactly one score per criterion, one-line reasons; a
   brief is exactly three single-sentence strings of at most 230 characters each; an email must carry the name placeholder, must not
   mention scores/rubric/ranking, must not contain placeholders, and every number in it must appear in
@@ -111,6 +114,8 @@ The terminal ones are `scored`, `needs_review` and `sent`. `candidate_emails.sta
   Resend idempotency key repeats the same message id on retry, and a second click on a sent candidate
   returns "already sent" without calling Resend.
 * **Test mode.** The course material only asks for a free Resend account and for Confirm to send to "the MESA test address". A Resend account without a verified domain can only deliver to its owner's own address, so setting `EMAIL_TEST_RECIPIENT` sends every email to that address instead of the candidate (still through Confirm, the stored confirmation and Resend). Unset it, and verify a domain, to email candidates.
+* **The candidate's stored address must be a MESA test address, even in test mode.** A non-MESA candidate
+  is refused rather than redirected.
 * **Recipients are restricted to MESA test addresses** (`@mesaschool.co` and subdomains). Anything
   else is refused in the UI, in `confirm` and in `send`.
 * Sent candidates are frozen: later uploads never regenerate their email. A send made in test mode is
@@ -143,11 +148,13 @@ npx tsx --env-file=.env.local scripts/seed-rubric.ts   # populate rubric_criteri
 npm run build && npx next start -p 3100
 ```
 
-The schema is in `supabase/migrations/` (apply `0001` then `0002`).
+The schema is in `supabase/migrations/` (apply `0001` to `0004` in order; `0004` removes all table privileges from the API roles).
 
 ## Tests
 
 ```bash
+# NOTE: three.ts and all60.ts DELETE ALL CANDIDATES first and refuse to run without ALLOW_WIPE=1
+
 # unit tests (no network): rubric parser, de-identification, leak check, model guard
 npx tsx --test tests/*.test.ts
 
@@ -171,7 +178,7 @@ test data: they are never copied into the repo or logged.
 
 Production: https://hiring-dashboard-sandy-omega.vercel.app (Vercel project `kanay-mesa/hiring-dashboard`).
 
-Set the six variables above for the Production environment (`vercel env add NAME production`).
+Set the variables above for the Production environment (`vercel env add NAME production`); `EMAIL_TEST_RECIPIENT` is optional.
 `next.config.ts` keeps `pdf-parse`/`pdfjs-dist`/`@napi-rs/canvas` external and explicitly traces them
 into `/api/upload`, because PDF.js loads its worker and canvas polyfill through dynamic requires that
 file tracing cannot see. (`/dashboard` does not import them.)
@@ -218,5 +225,9 @@ See `HANDOFF.md` for the open items.
    moved to `needs_review` by a sweep after 10 minutes.
 9. **Duplicates.** Uploading the same CV twice creates two candidates; there is no de-duplication.
 10. **Scanned PDFs** (no extractable text) go to `needs_review`; there is no OCR.
-11. **No authentication** was added (out of scope). The deployment is therefore reachable by anyone
+11. **Known limitations.** A CV can contain text aimed at the model (prompt injection) and skew its score or
+    draft; the human review before every send is the mitigation. Anyone with the URL can upload (each CV makes
+    about four Gemini calls), because authentication was out of scope. The site sends anti-framing and
+    nosniff headers.
+12. **No authentication** was added (out of scope). The deployment is therefore reachable by anyone
     with the URL; turn on Vercel Deployment Protection. The MESA-only recipient rule limits the harm.

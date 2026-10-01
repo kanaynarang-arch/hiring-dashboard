@@ -33,7 +33,7 @@ import { verifyDatabase } from './verify-db';
 
   for (const [i, id] of ids.entries()) {
     const { data: cand } = await db.from('candidates').select('status,applied_role').eq('id', id).single();
-    const [{ data: sc }, { data: tot }, { data: br }, { data: em }] = await Promise.all([
+    const [{ data: sc }, { data: tot }, , { data: em }] = await Promise.all([
       db.from('candidate_scores').select('id').eq('candidate_id', id),
       db.from('candidate_role_scores').select('role').eq('candidate_id', id),
       db.from('candidate_briefs').select('brief_text').eq('candidate_id', id),

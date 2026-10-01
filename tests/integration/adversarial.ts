@@ -14,7 +14,7 @@ import { getDashboardData } from '../../src/lib/queries';
 import { claimForSending, confirmSend, sendConfirmed, contentHash } from '../../src/lib/send';
 import { resendStats } from '../../src/lib/resend';
 import { z } from 'zod';
-import { BASE_URL, Checks, cvDir, clearAllCandidates } from './lib';
+import { BASE_URL, Checks, cvDir } from './lib';
 import { CV_BODY, makePdf } from './pdf';
 
 const checks = new Checks();
@@ -55,7 +55,6 @@ async function rowsFor(id: string) {
 (async () => {
   if (process.env.EMAIL_TEST_RECIPIENT) throw new Error('Unset EMAIL_TEST_RECIPIENT before running this suite: test mode would redirect (and really send) the 3b/3f emails.');
   const dir = cvDir();
-  await clearAllCandidates();
   const cleanup: string[] = [];
 
   // ---------- 3a: ambiguous CV -> needs_review and no Gemini request ----------
@@ -84,7 +83,7 @@ async function rowsFor(id: string) {
   const mine = reqsFor(real.id);
   checks.check('3c: Gemini was called for this candidate (2 rubric scores + brief + email)', mine.length >= 4, `${mine.length} requests`);
   checks.check(`3c: every request targeted only the configured model (${getModelId()})`, mine.every((r) => r.url.includes(`/models/${getModelId()}:`)));
-  let leaks: string[] = [];
+  const leaks: string[] = [];
   for (const [i, r] of mine.entries()) {
     const text = payloadTexts(r.body);
     const lower = text.toLowerCase();
