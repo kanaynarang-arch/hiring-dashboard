@@ -125,8 +125,8 @@ All are in `.env.example`. Real values live only in `.env.local` (git-ignored) a
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini (secret; billed key) |
 | `AI_MODEL` | The single Gemini model id used for every AI step. Required |
 | `RESEND_API_KEY` | Sending (secret) |
-| `EMAIL_FROM` | Sender; must be on a Resend-verified domain that can deliver to the MESA addresses |
-| `BASE_URL`, `CV_DIR`, `NO_HINTS` | Optional, tests/scripts only |
+| `EMAIL_FROM` | Sender. Needs a Resend-verified domain to reach anyone other than the Resend account owner; the sandbox sender only delivers to the owner |
+| `BASE_URL`, `CV_DIR`, `NO_HINTS`, `TEST_RECIPIENT` | Optional, tests/scripts only |
 
 Nothing is exposed to the browser; there are no `NEXT_PUBLIC_` variables.
 
@@ -155,6 +155,9 @@ npx tsx --env-file=.env.local tests/integration/three.ts       /path/to/cv-folde
 npx tsx --env-file=.env.local tests/integration/adversarial.ts /path/to/cv-folder
 npx tsx --env-file=.env.local tests/integration/all60.ts       /path/to/cv-folder --concurrency=3
 BASE_URL=https://<deployment> npx tsx --env-file=.env.local tests/integration/final.ts /path/to/cv-folder
+
+# real send to Resend, using a made-up candidate addressed to YOUR Resend login address
+BASE_URL=https://<deployment> TEST_RECIPIENT=you@pg27.mesaschool.co npx tsx --env-file=.env.local tests/integration/send-self.ts
 ```
 
 All integration checks read the **persisted database state**, not UI messages. The CV PDFs are

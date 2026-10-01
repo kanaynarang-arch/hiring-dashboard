@@ -71,8 +71,9 @@ import { verifyDatabase } from './verify-db';
     const againJson = await again.json();
     checks.check('a second click does not send a second email', againJson.alreadySent === true);
     let last: string | null = null;
-    for (let i = 0; i < 30 && last !== 'delivered'; i++) { await new Promise((r) => setTimeout(r, 1000)); last = await getResendDeliveryStatus(e!.resend_message_id!).catch(() => null); }
-    checks.check('Resend reports the email delivered within 30 seconds of sending', last === 'delivered', `last_event=${last} after ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+    for (let i = 0; i < 30 && last !== 'delivered' && last !== 'unreadable_with_sending_only_key'; i++) { await new Promise((r) => setTimeout(r, 1000)); last = await getResendDeliveryStatus(e!.resend_message_id!).catch(() => null); }
+    if (last === 'unreadable_with_sending_only_key') console.log('UNVERIFIED: delivery status cannot be read with a sending-only key; check the inbox.');
+    else checks.check('Resend reports the email delivered within 30 seconds of sending', last === 'delivered', `last_event=${last} after ${((Date.now() - t0) / 1000).toFixed(0)}s`);
     console.log(`whole loop (upload start -> sent): ${((Date.now() - loopStart) / 1000).toFixed(0)}s`);
   }
   await verifyDatabase(checks);

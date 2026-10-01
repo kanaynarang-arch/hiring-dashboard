@@ -41,6 +41,8 @@ export async function sendViaResend(params: {
 }
 
 export async function getResendDeliveryStatus(messageId: string): Promise<string | null> {
-  const { data } = await client().emails.get(messageId);
+  const { data, error } = await client().emails.get(messageId);
+  // A sending-only key (least privilege) cannot read delivery events.
+  if (error) return error.name === 'restricted_api_key' ? 'unreadable_with_sending_only_key' : null;
   return (data as { last_event?: string } | null)?.last_event ?? null;
 }

@@ -5,36 +5,35 @@ Nothing in this file is a secret. Items marked **UNVERIFIED** were not checked b
 
 ## Blocked: needs you (in this order)
 
-### 1. Resend API key and a sender that can reach the MESA addresses — nothing has been sent yet
-`RESEND_API_KEY` is empty everywhere (`.env.local` and Vercel), so **Confirm & send has never been run
-against Resend**. The live endpoints were exercised up to that point: an unconfirmed send is rejected
-(HTTP 409), a confirmed send reaches the Resend step and fails safely with "RESEND_API_KEY is not set"
-(HTTP 502), and the row was reset afterwards.
+### 1. Verify a sending domain in Resend so real candidates can be emailed
+The Resend key is now set (a **Sending access** key named `kargo-hiring-dashboard`, stored in
+`.env.local` and in Vercel for production/preview/development, production redeployed). The real send
+path is **verified end to end on the live site**: for a made-up candidate whose address was yours
+(`kanay_narang@pg27.mesaschool.co`, the login address of the Resend team "mesaschool"), Confirm then
+Send returned a Resend message id in about 4 s, the email and candidate rows became `sent`, the real
+name was in the body, and a second click sent nothing.
 
-1. In Resend, create an API key with *Sending access*.
-2. `EMAIL_FROM` is currently Resend's shared sandbox sender. That sender can only deliver to the email
-   address of your own Resend account, **not** to `@pg27.mesaschool.co`. Verify a domain in Resend and
-   set `EMAIL_FROM` to an address on it (for example `Kargo Hiring <hiring@your-domain>`).
-3. Set both for local and production:
+But this Resend team has **no verified domain**, and `EMAIL_FROM` is Resend's sandbox sender, which
+Resend only lets deliver to that one address. Confirm & send for the 60 real candidates (all
+`squad_N@pg27.mesaschool.co`) therefore fails with Resend's *"You can only send testing emails to your
+own email address"* error until you do this (DNS access is needed, so I can't):
+1. Resend → Domains → Add domain, add the DNS records it shows at your DNS provider, wait for Verified.
+2. Set `EMAIL_FROM` to an address on it, locally and in production, and redeploy:
    ```bash
-   # put RESEND_API_KEY and EMAIL_FROM in .env.local, then:
-   vercel env add RESEND_API_KEY production
-   vercel env add EMAIL_FROM production --force
+   vercel env add EMAIL_FROM production --force   # e.g. Kargo Hiring <hiring@your-domain>
    ```
-   then redeploy (item 3).
-4. Prove it end to end (this **sends one real email** to the top candidate's MESA test address):
+3. Prove it (this sends one real email to the top candidate's MESA test address):
    ```bash
    BASE_URL=https://hiring-dashboard-sandy-omega.vercel.app \
      npx tsx --env-file=.env.local tests/integration/final.ts "<folder of the 60 CV PDFs>"
    ```
-   It re-uploads two CVs, times them, presses Confirm on the top candidate, and asserts: Resend message
-   id returned, `sent` in Supabase, real name in the body, a second click sends nothing, and Resend
-   reports `delivered` within 30 s.
+A failed send leaves the draft as *Failed - retry* with Resend's message; nothing is lost.
 
 ### 2. UNVERIFIED: the email reaching the inbox within 30 seconds
-I cannot read the MESA inbox. After step 1, open the inbox of the top PM candidate (address shown on the
-dashboard) and confirm the message arrived, addressed by real name. `final.ts` checks Resend's own
-`delivered` event, which is not the same as seeing it in the inbox.
+I cannot read the inbox. Check `kanay_narang@pg27.mesaschool.co` for a test message addressed to
+"Jane Roe" (Resend message id `01a0f76d-0916-7c9c-8a4f-0482d528b619`) and note when it arrived relative to
+the send. Delivery status can't be read through the API because the key is sending-only; use a
+full-access key if you want the tests to check Resend's `delivered` event automatically.
 
 ### 3. Vercel blocks Git-triggered deployments (production was deployed by CLI)
 Every push to `main` creates a deployment with status **Blocked**: *"the commit author doesn't have
@@ -75,7 +74,8 @@ and `vercel env add <NAME> production --force`, then redeploy. No secret is in t
   character in the PDF text, now fixed and re-run).
 - The stored name/email/phone appear nowhere in any stored de-identified CV text (60/60).
 - Adversarial tests 3a-3f pass (34 checks), including the real Gemini request payloads.
-- Live deployment: two new CVs reached a complete terminal state in 43 s and 31 s.
+- Live deployment: two new CVs reached a complete terminal state in 27-43 s (three runs).
+- Live send: Confirm then Send to a MESA address (yours) returned a Resend message id; see item 1.
 
 ## Notes
 
