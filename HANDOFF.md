@@ -31,16 +31,14 @@ again, mark it "Not spam" or add a Gmail filter *from onboarding@resend.dev -> N
 not create one; it is a persistent mailbox rule). A verified domain is the proper fix. The API cannot
 report delivery status because the key is sending-only.
 
-### 3. Vercel blocks Git-triggered deployments (production was deployed by CLI)
-Every push to `main` creates a deployment with status **Blocked**: *"the commit author doesn't have
-permission to create deployments for this project."* The commits are authored as
-`kanaynarang@gmail.com`, which Vercel does not match to a team member. Fix one of:
-- In GitHub → Settings → Emails, add/verify the commit email on the `kanaynarang-arch` account, and in
-  Vercel → Account Settings → Authentication connect that GitHub account; or
-- keep deploying with the CLI from a copy without `.git` (command in the README, "Deployment").
-
-Current production was deployed that way, from the same source as the last pushed commit (plus later
-commits that only touch docs and unused assets). I did not change git config.
+### 3. Push-to-deploy works only if commits use your GitHub-linked email
+Vercel blocked Git-triggered deployments because commits were authored as `kanaynarang@gmail.com`, which
+is not linked to your GitHub account. Commits authored with your GitHub noreply address
+(`332791709+kanaynarang-arch@users.noreply.github.com`) deploy normally; I verified that (a push built and
+went Ready). I passed it per command and did **not** change your git config. To make it permanent, either
+add `kanaynarang@gmail.com` as a verified email on the GitHub account, or run in this repo:
+`git config user.email "332791709+kanaynarang-arch@users.noreply.github.com"`. Until then, a push from a
+different identity will show as Blocked. The CLI snapshot deploy in the README still works as a fallback.
 
 ### 4. UNVERIFIED: the Gemini key is on a billed plan
 The key works (every request succeeded), but a key cannot tell me whether it is on the free tier,

@@ -96,7 +96,7 @@ The terminal ones are `scored`, `needs_review` and `sent`. `candidate_emails.sta
   candidate goes to `needs_review`. `src/lib/ai/model.ts` additionally refuses any request made
   outside a leak-checked candidate context or to a different model.
 * Outputs are validated with zod and in code: exactly one score per criterion, one-line reasons; a
-  brief is exactly three single-sentence strings; an email must carry the name placeholder, must not
+  brief is exactly three single-sentence strings of at most 230 characters each; an email must carry the name placeholder, must not
   mention scores/rubric/ranking, must not contain placeholders, and every number in it must appear in
   the CV.
 * Use a **billed** Gemini API key. The free tier may use inputs to improve Google's models.
@@ -113,7 +113,9 @@ The terminal ones are `scored`, `needs_review` and `sent`. `candidate_emails.sta
 * **Test mode.** The course material only asks for a free Resend account and for Confirm to send to "the MESA test address". A Resend account without a verified domain can only deliver to its owner's own address, so setting `EMAIL_TEST_RECIPIENT` sends every email to that address instead of the candidate (still through Confirm, the stored confirmation and Resend). Unset it, and verify a domain, to email candidates.
 * **Recipients are restricted to MESA test addresses** (`@mesaschool.co` and subdomains). Anything
   else is refused in the UI, in `confirm` and in `send`.
-* Sent candidates are frozen: later uploads never regenerate their email.
+* Sent candidates are frozen: later uploads never regenerate their email. A send made in test mode is
+  recorded as a *test send* (`candidate_emails.test_send`, `sent_to`), shown as "Test-sent", and is
+  reopened for a real send once test mode is turned off, so a test never uses up a candidate.
 
 ## Environment variables
 
@@ -174,10 +176,11 @@ Set the six variables above for the Production environment (`vercel env add NAME
 into `/api/upload`, because PDF.js loads its worker and canvas polyfill through dynamic requires that
 file tracing cannot see. (`/dashboard` does not import them.)
 
-The GitHub repo is connected to the Vercel project, but Vercel currently **blocks** Git-triggered
-deployments ("the commit author doesn't have permission"): the commit email is not linked to the
-Vercel/GitHub account. Until that is fixed, deploy with the CLI from a copy of the source that has no
-`.git` folder (the CLI otherwise sends the commit author with the upload and is blocked the same way):
+The GitHub repo is connected to the Vercel project, so pushing to `main` deploys, **provided the commit
+author is linked to your GitHub account** (for example the `…@users.noreply.github.com` address). Commits
+authored with an unlinked email are shown as *Blocked* ("the commit author doesn't have permission").
+As a fallback, deploy with the CLI from a copy of the source that has no `.git` folder (the CLI otherwise
+sends the commit author with the upload and is blocked the same way):
 
 ```bash
 rsync -a --exclude .git --exclude node_modules --exclude .next --exclude '.env*' --exclude tests --exclude scripts ./ /tmp/deploy && cd /tmp/deploy && vercel deploy --prod --yes
