@@ -22,14 +22,14 @@ To email real candidates later (needs DNS access, so I can't): Resend -> Domains
 SPF/DKIM records, set `EMAIL_FROM` to an address on it, then **remove** `EMAIL_TEST_RECIPIENT`
 (`vercel env rm EMAIL_TEST_RECIPIENT production`) and redeploy.
 
-### 2. UNVERIFIED: inbox arrival time and spam placement
-I cannot read the inbox. Look for the `[TEST]` message(s) in `kanay_narang@pg27.mesaschool.co`. The
-first test email (to "Jane Roe") landed in **spam**: the sandbox sender `onboarding@resend.dev` is a shared
-address with no SPF/DKIM/DMARC for your own domain, and nothing in the course material addresses this.
-Without a domain the only fixes are on the receiving side: mark the message "Not spam", or in Gmail create
-a filter *from onboarding@resend.dev -> Never send to Spam* (I did not create it; it is a persistent mailbox
-rule and needs your OK). A verified domain is the proper fix. Delivery status can't be read by the API
-because the key is sending-only.
+### 2. Inbox arrival: confirmed by you; spam placement still not guaranteed
+You reported that the `[TEST]` email for the real top candidate **arrived in your inbox immediately**, so
+the 30-second target is met for the test inbox (reported by you, not measured by me). The earlier
+"Jane Roe" test email had landed in **spam**, so placement is not reliable: the sandbox sender
+`onboarding@resend.dev` is a shared address with no SPF/DKIM/DMARC for your own domain. If it lands in spam
+again, mark it "Not spam" or add a Gmail filter *from onboarding@resend.dev -> Never send to Spam* (I did
+not create one; it is a persistent mailbox rule). A verified domain is the proper fix. The API cannot
+report delivery status because the key is sending-only.
 
 ### 3. Vercel blocks Git-triggered deployments (production was deployed by CLI)
 Every push to `main` creates a deployment with status **Blocked**: *"the commit author doesn't have
