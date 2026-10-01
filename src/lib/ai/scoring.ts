@@ -1,17 +1,6 @@
-import { getModel } from './model';
-import { generateText, Output } from 'ai';
 import { z } from 'zod';
 import type { Role, RubricCriterion } from '../db';
-
-const ScoreSchema = z.object({
-  scores: z.array(
-    z.object({
-      criterion_id: z.number(),
-      score: z.number().min(0).max(10),
-      reason: z.string(),
-    }),
-  ),
-});
+import { generateStructured } from './guard';
 
 export interface CriterionScore {
   criterion_id: number;
@@ -19,32 +8,51 @@ export interface CriterionScore {
   reason: string;
 }
 
-// Scores a de-identified CV against a single rubric (PM or SPM). The model
-// only ever sees the redacted CV text and the rubric criteria pulled from
-// the database — never the raw CV, never the candidate's name/email/phone,
-// and never the job description (rubric.txt is the sole scoring authority).
+// Scores one de-identified CV against ONE rubric. The request contains only
+// the rubric criteria from the database and the redacted CV text: no job
+// description (rubric.txt is the sole scoring authority) and no PII.
 export async function scoreCvAgainstRubric(
+  candidateId: string,
   redactedCvText: string,
   role: Role,
   criteria: RubricCriterion[],
 ): Promise<CriterionScore[]> {
+  const expectedIds = new Set(criteria.map((c) => c.id));
+
+  const schema = z
+    .object({
+      scores: z.array(
+        z.object({
+          criterion_id: z.number().int(),
+          score: z.number().min(0).max(10),
+          reason: z
+            .string()
+            .transform((r) => r.replace(/\s+/g, ' ').trim())
+            .pipe(z.string().min(10).max(350)),
+        }),
+      ),
+    })
+    .superRefine((v, ctx) => {
+      const ids = v.scores.map((s) => s.criterion_id);
+      if (ids.length !== expectedIds.size || new Set(ids).size !== ids.length || ids.some((i) => !expectedIds.has(i))) {
+        ctx.addIssue({ code: 'custom', message: 'scores must contain exactly one entry per rubric criterion' });
+      }
+    });
+
   const criteriaList = criteria
-    .map((c) => `- id ${c.id} — "${c.name}" (weight ${c.weight}%): ${c.description}`)
+    .map((c) => `- criterion_id ${c.id}: "${c.name}" (weight ${c.weight}%): ${c.description}`)
     .join('\n');
 
-  const { output } = await generateText({
-    model: getModel(),
-    output: Output.object({ schema: ScoreSchema }),
-    system: `You are scoring a candidate's de-identified CV against a fixed hiring rubric. \
-Use ONLY the criteria and descriptions given below — do not invent new criteria, do not use \
-outside knowledge of the role or company, do not infer preferences beyond what is written. \
-For each criterion, give a score from 0 (no evidence at all) to 10 (strong, unambiguous \
-evidence exactly matching the description), grounded only in specific text from the CV. \
-Give a one-line reason for each score, citing the concrete evidence. The CV has had the \
-candidate's name, email, and phone number redacted — do not speculate about identity, and \
-never refer to the candidate by name (you were not given one).`,
-    prompt: `Rubric criteria for the ${role.toUpperCase()} role:\n${criteriaList}\n\nCandidate CV (de-identified):\n"""\n${redactedCvText}\n"""`,
+  const result = await generateStructured({
+    candidateId,
+    schema,
+    system: `You score one de-identified CV against a fixed hiring rubric. Use ONLY the criteria below. \
+Do not add criteria, do not use outside knowledge of the company or role, and do not reward anything the \
+rubric does not describe. For every criterion give a score from 0 (no evidence at all) to 10 (strong, \
+unambiguous evidence matching the description) and a one-line reason that cites the specific evidence \
+in the CV (or states that there is none). Return exactly one entry per criterion_id. The CV has had \
+personal details removed; never guess at identity.`,
+    prompt: `Rubric: ${role === 'pm' ? 'Product Manager' : 'Senior Product Manager'}\n${criteriaList}\n\nCV (de-identified):\n"""\n${redactedCvText}\n"""`,
   });
-
-  return output.scores;
+  return result.scores;
 }

@@ -29,6 +29,7 @@ export interface Candidate {
   applied_role: Role;
   original_filename: string;
   status: CandidateStatus;
+  stage: string;
   review_reason: string | null;
   created_at: string;
   updated_at: string;
@@ -36,8 +37,8 @@ export interface Candidate {
 
 export interface CandidatePii {
   candidate_id: string;
-  name: string;
-  email: string;
+  name: string | null;
+  email: string | null;
   phone: string | null;
   raw_cv_text: string;
   created_at: string;
@@ -72,7 +73,7 @@ export interface CandidateBrief {
 }
 
 export type EmailType = 'invite' | 'rejection';
-export type EmailStatus = 'draft' | 'sent' | 'failed';
+export type EmailStatus = 'draft' | 'sending' | 'sent' | 'failed';
 
 export interface CandidateEmail {
   candidate_id: string;
@@ -83,4 +84,7 @@ export interface CandidateEmail {
   resend_message_id: string | null;
   error_message: string | null;
   sent_at: string | null;
+  confirmed_at: string | null;
+  confirmed_hash: string | null;
+  sending_started_at: string | null;
 }
