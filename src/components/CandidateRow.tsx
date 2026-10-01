@@ -9,6 +9,9 @@ const ROLE_LABEL = { pm: 'PM', spm: 'SPM' } as const;
 function EmailStatus({ c }: { c: DashboardCandidate }) {
   const e = c.emailDraft;
   if (!e) return <span className="text-zinc-400">—</span>;
+  if (e.status === 'sent' && e.test_send) {
+    return <span className="text-amber-700">Test email sent {e.sent_at ? new Date(e.sent_at).toLocaleTimeString() : ''}</span>;
+  }
   if (e.status === 'sent') {
     return <span className="text-green-700">Sent {e.sent_at ? new Date(e.sent_at).toLocaleTimeString() : ''}</span>;
   }
@@ -43,7 +46,7 @@ export default function CandidateRow({ candidate: c }: { candidate: DashboardCan
         </td>
         <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
           {c.emailDraft && (
-            <ConfirmSendButton candidateId={c.id} sent={c.emailDraft.status === 'sent'} recipientAllowed={c.recipientAllowed} />
+            <ConfirmSendButton candidateId={c.id} sent={c.emailDraft.status === 'sent'} testSent={c.emailDraft.test_send} recipientAllowed={c.recipientAllowed} />
           )}
         </td>
       </tr>
@@ -89,8 +92,11 @@ export default function CandidateRow({ candidate: c }: { candidate: DashboardCan
                       <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{c.emailDraft.body}</p>
                     </div>
                     {c.emailDraft.status === 'sent' && (
-                      <p className="mt-2 text-xs text-green-700">
-                        Sent {c.emailDraft.sent_at ? new Date(c.emailDraft.sent_at).toLocaleString() : ''} · Resend message {c.emailDraft.resend_message_id}
+                      <p className={`mt-2 text-xs ${c.emailDraft.test_send ? 'text-amber-700' : 'text-green-700'}`}>
+                        {c.emailDraft.test_send
+                          ? `Test mode: sent to ${c.emailDraft.sent_to}, not to the candidate. `
+                          : `Sent to ${c.emailDraft.sent_to ?? c.email}. `}
+                        {c.emailDraft.sent_at ? new Date(c.emailDraft.sent_at).toLocaleString() : ''} · Resend message {c.emailDraft.resend_message_id}
                       </p>
                     )}
                     {c.emailDraft.status === 'failed' && <p className="mt-2 text-xs text-red-700">Last error: {c.emailDraft.error_message}</p>}

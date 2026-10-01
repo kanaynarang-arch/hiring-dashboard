@@ -26,6 +26,24 @@ export function deliveryAddress(storedEmail: string | null | undefined): string 
   return testModeRecipient() ?? storedEmail ?? null;
 }
 
+// A send made in test mode went to the test inbox, not the candidate, so it must not lock the
+// candidate as sent forever. Once test mode is off, those drafts are reopened for a real send.
+export async function reopenTestSends(onlyIds?: string[]): Promise<number> {
+  if (testModeRecipient()) return 0;
+  const db = getDb();
+  let query = db.from('candidate_emails').select('candidate_id').eq('test_send', true).eq('status', 'sent');
+  if (onlyIds) query = query.in('candidate_id', onlyIds);
+  const { data } = await query;
+  const ids = (data ?? []).map((r) => r.candidate_id as string);
+  if (ids.length === 0) return 0;
+  await db
+    .from('candidate_emails')
+    .update({ status: 'draft', test_send: false, sent_to: null, sent_at: null, resend_message_id: null, confirmed_at: null, confirmed_hash: null, sending_started_at: null, error_message: null })
+    .in('candidate_id', ids);
+  await db.from('candidates').update({ status: 'scored', stage: 'done' }).in('id', ids).eq('status', 'sent');
+  return ids.length;
+}
+
 export function contentHash(to: string, subject: string, body: string): string {
   return createHash('sha256').update(`${to.toLowerCase()}\n${subject}\n${body}`).digest('hex');
 }
@@ -78,6 +96,7 @@ async function loadForSend(candidateId: string) {
 // Step 1 — the founder's click. Persists a confirmation bound to the exact
 // recipient, subject and body that were on screen.
 export async function confirmSend(candidateId: string): Promise<SendOutcome> {
+  await reopenTestSends();
   const { cand, email, to } = await loadForSend(candidateId);
   if (!cand || !email) return fail('not_found', 'No such candidate or draft.', 404);
   if (cand.status === 'sent' || email.status === 'sent') {
@@ -102,6 +121,7 @@ export async function confirmSend(candidateId: string): Promise<SendOutcome> {
 // disabled state or a client flag is never what enforces that.
 export async function sendConfirmed(candidateId: string): Promise<SendOutcome> {
   const db = getDb();
+  await reopenTestSends();
   const { cand, email, to } = await loadForSend(candidateId);
   if (!cand || !email) return fail('not_found', 'No such candidate or draft.', 404);
 
@@ -139,7 +159,7 @@ export async function sendConfirmed(candidateId: string): Promise<SendOutcome> {
 
   await db
     .from('candidate_emails')
-    .update({ status: 'sent', resend_message_id: result.messageId, sent_at: new Date().toISOString(), error_message: null, updated_at: new Date().toISOString() })
+    .update({ status: 'sent', resend_message_id: result.messageId, sent_at: new Date().toISOString(), sent_to: to, test_send: Boolean(testModeRecipient()), error_message: null, updated_at: new Date().toISOString() })
     .eq('candidate_id', candidateId);
   await db.from('candidates').update({ status: 'sent', stage: 'sent', updated_at: new Date().toISOString() }).eq('id', candidateId);
   return { ok: true, message: 'Sent.', messageId: result.messageId, httpStatus: 200 };

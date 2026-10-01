@@ -7,15 +7,18 @@ export default function ConfirmSendButton({
   candidateId,
   sent,
   recipientAllowed,
+  testSent,
 }: {
   candidateId: string;
   sent: boolean;
+  testSent: boolean;
   recipientAllowed: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  if (sent && testSent) return <span className="text-sm font-medium text-amber-700">Test-sent ✓</span>;
   if (sent) return <span className="text-sm font-medium text-green-700">Sent ✓</span>;
   if (!recipientAllowed) {
     return <span className="text-xs text-red-700">Sending disabled: not a MESA test address</span>;

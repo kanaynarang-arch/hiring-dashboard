@@ -19,6 +19,8 @@ export interface EmailView {
   resend_message_id: string | null;
   error_message: string | null;
   confirmed: boolean;
+  test_send: boolean;
+  sent_to: string | null;
 }
 
 export interface DashboardCandidate {
@@ -145,6 +147,8 @@ export async function getDashboardData(): Promise<DashboardData> {
             resend_message_id: emailRow.resend_message_id as string | null,
             error_message: emailRow.error_message as string | null,
             confirmed: Boolean(emailRow.confirmed_at),
+            test_send: Boolean(emailRow.test_send),
+            sent_to: (emailRow.sent_to as string | null) ?? null,
           }
         : null,
     };

@@ -1,5 +1,5 @@
 import { getDashboardData } from '@/lib/queries';
-import { testModeRecipient } from '@/lib/send';
+import { reopenTestSends, testModeRecipient } from '@/lib/send';
 import { sweepStaleProcessing } from '@/lib/lifecycle';
 import CandidateTable from '@/components/CandidateTable';
 import NeedsReviewTable from '@/components/NeedsReviewTable';
@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
   await sweepStaleProcessing().catch(() => {});
+  await reopenTestSends().catch(() => {});
   const data = await getDashboardData();
   const testRecipient = testModeRecipient();
 
