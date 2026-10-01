@@ -155,8 +155,8 @@ The schema is in `supabase/migrations/` (apply `0001` to `0004` in order; `0004`
 ```bash
 # NOTE: three.ts and all60.ts DELETE ALL CANDIDATES first and refuse to run without ALLOW_WIPE=1
 
-# unit tests (no network): rubric parser, de-identification, leak check, model guard
-npx tsx --test tests/*.test.ts
+# unit tests (no network): rubric parser, de-identification, leak check, model guard, send rules
+npm test        # also: npm run typecheck && npm run lint
 
 # de-identification over a folder of CVs (no AI, no DB)
 npx tsx scripts/deid-check.ts /path/to/cv-folder
