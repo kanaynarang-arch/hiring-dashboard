@@ -8,12 +8,11 @@ Nothing in this file is a secret. Items marked **UNVERIFIED** were not checked b
 ### 1. Resend runs in TEST MODE (no domain); verify a domain only to email real candidates
 The course material asks for a free Resend account and for Confirm to send to "the MESA test address".
 A Resend account with no verified domain can only deliver to its owner's address
-(`kanay_narang@pg27.mesaschool.co`), so production has `EMAIL_TEST_RECIPIENT` set to that address:
+(your Resend login address, a `@pg27.mesaschool.co` address), so production has `EMAIL_TEST_RECIPIENT` set to that address:
 every Confirm & send goes to **your inbox** with `[TEST]` in the subject, and the dashboard shows a
 banner saying so. Candidates are **not** emailed.
 
-Verified on the live site: Confirm on the real top PM candidate returned Resend message
-`01a0f77a-8d32-768d-93c3-359816ca8c7c`, the candidate is `sent` in Supabase, the body has the real name,
+Verified on the live site: Confirm on the real top PM candidate returned a Resend message id (stored in Supabase), the candidate is `sent` in Supabase, the body has the real name,
 and a second click sends nothing. Gotcha: **that candidate now shows Sent and must not be re-sent**
 (Resend's idempotency key returns the original message for 24 hours instead of sending again). Test your
 own clicks on any other candidate.
@@ -32,12 +31,12 @@ not create one; it is a persistent mailbox rule). A verified domain is the prope
 report delivery status because the key is sending-only.
 
 ### 3. Push-to-deploy works only if commits use your GitHub-linked email
-Vercel blocked Git-triggered deployments because commits were authored as `kanaynarang@gmail.com`, which
+Vercel blocked Git-triggered deployments because commits were authored as your default git email, which
 is not linked to your GitHub account. Commits authored with your GitHub noreply address
-(`332791709+kanaynarang-arch@users.noreply.github.com`) deploy normally; I verified that (a push built and
+(`<id>+<github-username>@users.noreply.github.com`) deploy normally; I verified that (a push built and
 went Ready). I passed it per command and did **not** change your git config. To make it permanent, either
-add `kanaynarang@gmail.com` as a verified email on the GitHub account, or run in this repo:
-`git config user.email "332791709+kanaynarang-arch@users.noreply.github.com"`. Until then, a push from a
+add your default git email as a verified email on the GitHub account, or run in this repo:
+`git config user.email "<id>+<github-username>@users.noreply.github.com"`. Until then, a push from a
 different identity will show as Blocked. The CLI snapshot deploy in the README still works as a fallback.
 
 ### 4. UNVERIFIED: the Gemini key is on a billed plan
