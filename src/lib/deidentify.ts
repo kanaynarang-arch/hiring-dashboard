@@ -1,309 +1,276 @@
-// Rule-based, deterministic PII extraction and redaction. No AI call is
-// ever involved in this step — sending the raw CV to a model just to find
-// the name would itself violate the "no AI call sees unredacted text" rule.
-// When confidence is insufficient, this fails closed (needsReview = true)
-// rather than guessing.
+// Deterministic PII extraction and removal. No model is involved at any
+// point: not to find the name, not to check that it is gone.
+//
+// The result is either a definite success (name established, exactly one
+// email, everything identifying removed, leak check passed) or a failure
+// that routes the candidate to needs_review. There is no "best effort" path.
 
-const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+import {
+  EMAIL_RE,
+  HANDLE_RE,
+  PHONE_RE,
+  URL_RE,
+  assertNoLeak,
+  findPhones,
+  nameTokens,
+  normalizeText,
+} from './leakcheck';
 
-// URLs and social handles are direct identifiers ("linkedin.com/in/jane-doe")
-// and often embed the candidate's name, so they're removed outright.
-const URL_RE =
-  /(?:https?:\/\/|www\.)\S+|\b(?:linkedin|github|gitlab|behance|dribbble|twitter|medium|flowcv)\.[a-z]{2,}(?:\/\S*)?|\b[a-z0-9-]+\.(?:com|in|me|io|co|net|org|dev)\/\S*/gi;
-
-// Requires 7-15 digits overall so it doesn't catch years, zip codes, etc.
-// Accepts leading +, and common separators (space, dot, dash, parens).
-const PHONE_RE =
-  /(?:\+\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)[\s.-]?)?\d{2,4}[\s.-]?\d{3,4}[\s.-]?\d{3,4}(?:[\s.-]?\d{2,4})?/g;
-
-// Substring match against the whole line — catches contact/link lines.
-const HEADER_SKIP_KEYWORDS = [
-  'resume',
-  'curriculum vitae',
-  ' cv ',
-  'linkedin',
-  'github',
-  'http',
-  'www',
-  'address',
-  'phone',
-  'email',
-  'mobile',
-  'contact',
-  'portfolio',
-  'behance',
-  'flowcv',
-];
-
-// Whole-word match against each token — catches section headers and job
-// titles that would otherwise pass a plain Title-Case check (e.g. "Work
-// Experience", "Product Manager", "Professional Summary").
-const NAME_DISQUALIFYING_WORDS = new Set([
-  // section headers
-  'education',
-  'experience',
-  'skills',
-  'summary',
-  'objective',
-  'profile',
-  'competencies',
-  'synopsis',
-  'qualifications',
-  'academic',
-  'development',
-  'professional',
-  'core',
-  'work',
-  'scaling',
-  'personal',
-  'details',
-  'technical',
-  'tools',
-  'publications',
-  'volunteer',
-  'leadership',
-  'honors',
-  'activities',
-  'about',
-  'career',
-  'certifications',
-  'projects',
-  'achievements',
-  'awards',
-  'languages',
-  'interests',
-  'references',
-  'contact',
-  // job-title words
-  'product',
-  'manager',
-  'engineer',
-  'leader',
-  'director',
-  'associate',
-  'officer',
-  'executive',
-  'analyst',
-  'consultant',
-  'specialist',
-  'developer',
-  'designer',
-  'strategy',
-  'operations',
-  'growth',
-  'marketing',
-  'sales',
-  'founder',
-  'ceo',
-  'cto',
-  'coo',
-  'cfo',
-  'vp',
-  'head',
-  'lead',
-  'senior',
-  'junior',
-  'intern',
-  'ai',
-  'ml',
-  'data',
-  'software',
-  'business',
-  'project',
-  'program',
-  'digital',
-  'chief',
-  'president',
-  'partner',
-]);
-
-function countDigits(s: string): number {
-  return (s.match(/\d/g) || []).length;
+export interface DeidInput {
+  rawText: string;
+  filename: string;
+  pdfTitle?: string;
+  pdfAuthor?: string;
 }
 
-// Strict Title Case: first letter uppercase, every subsequent letter
-// lowercase (allows hyphen/apostrophe/period for names like "Al-Amin" or
-// "D'Souza" or initials like "R."). This alone rejects ALL-CAPS section
-// headers ("EDUCATION") without needing to enumerate them.
-const STRICT_NAME_WORD_RE = /^[A-Z][a-z'.-]*$/;
+export type DeidResult =
+  | { ok: true; name: string; email: string; phone: string | null; redactedText: string }
+  | { ok: false; reason: string; email: string | null; phone: string | null };
 
-function isPlausibleNameLine(line: string): boolean {
-  const trimmed = line.trim();
-  if (!trimmed || trimmed.length > 45) return false;
-  if (countDigits(trimmed) > 0) return false;
-  if (trimmed.includes('@')) return false;
-  if (/[|/•⋄\-–—]/.test(trimmed)) return false;
+const REDACTED = '[REDACTED]';
 
-  const lower = trimmed.toLowerCase();
-  if (HEADER_SKIP_KEYWORDS.some((kw) => lower.includes(kw))) return false;
+// Words that make a segment NOT a person's name: section headings, job titles,
+// organisations, places, dates. Matching is whole-word and case-insensitive.
+const NON_NAME_WORDS = new Set(
+  `education experience skills skill summary objective profile competencies competency synopsis
+   qualifications qualification academic development professional core work scaling personal details
+   technical tools tool publications volunteer leadership honors honours activities about career
+   certifications certification projects project achievements awards languages interests references
+   contact contacts overview highlights expertise strengths responsibilities additional training courses
+   internship internships employment history key areas domain focus declaration hobbies extra curricular
+   product products manager management engineer engineering leader director associate officer executive
+   analyst consultant specialist developer designer strategy strategic operations growth marketing sales
+   founder ceo cto coo cfo vp head lead senior junior intern ai ml data software business program digital
+   chief president partner owner principal staff architect coordinator administrator assistant research
+   researcher scientist analytics design user customer revenue platform integration integrations
+   university institute college school academy technologies technology tech solutions systems services
+   private pvt ltd limited inc llc corp corporation company group labs lab logistics freight supply chain
+   capital finance bank banking consulting consultancy ventures industries enterprises international
+   global foundation india mumbai delhi new bangalore bengaluru pune hyderabad chennai kolkata gurgaon
+   gurugram noida ahmedabad jaipur kochi thane navi maharashtra karnataka telangana gujarat tamil nadu
+   kerala usa uk singapore dubai present current month year years months expected cgpa gpa percent class
+   board hsc ssc icse cbse btech mtech bachelor master masters mba pgdm bsc msc science arts commerce
+   january february march april may june july august september october november december jan feb mar apr
+   jun jul aug sep sept oct nov dec linkedin email phone mobile portfolio website address github kargo
+   mesa page of the and for with from full time part remote hybrid onsite generative agentic gen`
+    .split(/\s+/)
+    .filter(Boolean),
+);
 
-  const words = trimmed.split(/\s+/).filter(Boolean);
-  // Real names are essentially always 2-4 tokens; reject single words
-  // (section headers, countries, job-title fragments) and long lines.
-  if (words.length < 2 || words.length > 4) return false;
+const TITLE_WORD = /^[A-Z][a-z]+(?:[-'’][A-Za-z]+)*\.?$/;
+const UPPER_WORD = /^[A-Z]{2,}(?:[-'’][A-Z]+)*\.?$/;
+const INITIAL = /^[A-Z]\.?$/;
 
+const flat = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+function stripPageMarkers(text: string): string {
+  return text.replace(/^\s*-- \d+ of \d+ --\s*$/gm, '');
+}
+
+// Replaces anything contact-shaped with a tab so the surrounding words fall
+// into their own segments.
+function maskContactTokens(line: string): string {
+  return line
+    .replace(EMAIL_RE, '\t')
+    .replace(URL_RE, '\t')
+    .replace(HANDLE_RE, '\t')
+    .replace(PHONE_RE, (m) => (findPhones(m).length ? '\t' : m))
+    .replace(/\b(?:e-?mail|phone|mobile|mob|tel|contact|linkedin|github|portfolio|website|address)\s*:/gi, '\t');
+}
+
+function splitSegments(line: string): string[] {
+  return line
+    .split(/\t+|\s{2,}|[|·•●○◦▪‣⋄◆■►▶,;]|\s[-–—]\s|\s\/\s/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function isNameShaped(segment: string): string[] | null {
+  const words = segment.split(/\s+/);
+  if (words.length < 2 || words.length > 4) return null;
+  let realWords = 0;
   for (const w of words) {
-    if (!STRICT_NAME_WORD_RE.test(w)) return false;
-    if (NAME_DISQUALIFYING_WORDS.has(w.toLowerCase())) return false;
+    if (!(TITLE_WORD.test(w) || UPPER_WORD.test(w) || INITIAL.test(w))) return null;
+    const bare = w.replace(/\./g, '').toLowerCase();
+    if (NON_NAME_WORDS.has(bare)) return null;
+    if (bare.length >= 2) realWords += 1;
   }
-  return true;
+  if (realWords < 2) return null;
+  if (words[0].replace(/\./g, '').length < 2) return null; // first token must be a real name, not an initial
+  return words.map((w) => w.replace(/\./g, ''));
 }
 
-export interface NameDetection {
-  name: string | null;
-  confidence: 'high' | 'medium' | 'none';
+interface NameGroup {
+  first: string;
+  last: string;
+  variants: string[][];
+  lines: number[];
+  count: number;
 }
 
-function detectName(text: string): NameDetection {
-  const lines = text
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .slice(0, 20);
+function titleCase(words: string[]): string {
+  return words
+    .map((w) => (w === w.toUpperCase() && w.length > 1 ? w[0] + w.slice(1).toLowerCase() : w))
+    .join(' ');
+}
 
-  for (let i = 0; i < lines.length; i++) {
-    if (isPlausibleNameLine(lines[i])) {
-      return { name: lines[i], confidence: i < 8 ? 'high' : 'medium' };
+interface Established {
+  name: string;
+}
+
+function establishName(
+  lines: string[],
+  contactLines: number[],
+  corroborationText: { url: string; filename: string; meta: string },
+): Established | { error: string } {
+  const groups = new Map<string, NameGroup>();
+
+  lines.forEach((line, idx) => {
+    for (const seg of splitSegments(maskContactTokens(line))) {
+      const words = isNameShaped(seg);
+      if (!words) continue;
+      const first = words[0].toLowerCase();
+      const last = words[words.length - 1].toLowerCase();
+      if (first === last) continue;
+      const key = `${first}|${last}`;
+      const g = groups.get(key) ?? { first, last, variants: [], lines: [], count: 0 };
+      g.variants.push(words);
+      g.lines.push(idx);
+      g.count += 1;
+      groups.set(key, g);
+    }
+  });
+
+  // Tier A: corroborated by something independent of the CV body (a URL slug,
+  // the filename or the PDF metadata). Tier B: only repeated near the header or
+  // contact block. Tier A always outranks tier B, so a repeated phrase that
+  // merely looks like a name ("Real Estate") cannot compete with the real one.
+  const tierA: NameGroup[] = [];
+  const tierB: NameGroup[] = [];
+  for (const g of groups.values()) {
+    const adjacent = g.lines.some(
+      (l) => l <= 2 || contactLines.some((c) => Math.abs(c - l) <= 3),
+    );
+    if (!adjacent) continue;
+    const both = (hay: string) => hay.includes(flat(g.first)) && hay.includes(flat(g.last));
+    if (both(corroborationText.url) || both(corroborationText.filename) || both(corroborationText.meta)) {
+      tierA.push(g);
+    } else if (g.count >= 2) {
+      tierB.push(g);
     }
   }
-  return { name: null, confidence: 'none' };
-}
+  const eligible = tierA.length > 0 ? tierA : tierB;
 
-const GENERIC_FILENAME_WORDS = new Set([
-  'resume',
-  'cv',
-  'curriculum',
-  'vitae',
-  'final',
-  'draft',
-  'updated',
-  'update',
-  'download',
-  'doc',
-  'document',
-  'new',
-  'latest',
-  'copy',
-  'pm',
-  'spm',
-]);
-
-// Files are very commonly named after the candidate ("Priya_Sharma_Resume.pdf").
-// Used only as a corroborating cross-check on the text-detected name below —
-// never as the sole source of a name — so it adds precision without adding a
-// second way to guess wrong.
-function filenameNameTokens(filename: string): string[] {
-  const base = filename.replace(/\.[^.]+$/, '');
-  const rawTokens = base.split(/[_\-.\s]+/).filter(Boolean);
-  const tokens: string[] = [];
-  for (const t of rawTokens) {
-    if (t.length < 3) continue;
-    if (!/^[A-Za-z]+$/.test(t)) continue;
-    const lower = t.toLowerCase();
-    if (GENERIC_FILENAME_WORDS.has(lower)) continue;
-    tokens.push(lower);
+  if (eligible.length === 0) {
+    return { error: 'Candidate name could not be established: no name near the header or contact block was corroborated.' };
   }
-  return tokens;
+  if (eligible.length > 1) {
+    return { error: `Candidate name is ambiguous: ${eligible.length} different corroborated name candidates were found.` };
+  }
+  const g = eligible[0];
+  const best = g.variants.reduce((a, b) => (b.length > a.length ? b : a));
+  const display = titleCase(best);
+  return { name: display };
 }
 
-// Returns false only when the filename looks name-shaped but shares no
-// token with the detected name — that combination is the strongest signal
-// available that the text heuristic grabbed the wrong line.
-function filenameCorroboratesOrIsUninformative(filename: string, detectedName: string): boolean {
-  const fileTokens = filenameNameTokens(filename);
-  if (fileTokens.length < 2) return true; // filename too generic to judge
-  const nameTokens = detectedName.toLowerCase().split(/\s+/);
-  return fileTokens.some((t) => nameTokens.includes(t));
-}
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-// Name tokens of 4+ letters are matched anywhere, even inside a longer word
-// ("priyakrishnan", "Kumar_Resume"), because a name fused into a handle or
-// filename-like string is still the name. Shorter tokens ("Rao", "Das") are
-// whole-word only to avoid mangling ordinary words ("Dashboard").
 function nameRegexes(name: string): RegExp[] {
-  const tokens = name.split(/\s+/).filter((t) => t.length >= 2);
-  const joined = tokens.map(escapeRegExp).join('[\\s._-]*');
+  const tokens = nameTokens(name);
+  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const joined = tokens.map(escape).join('[\\s._-]*');
   const regexes = [new RegExp(joined, 'gi')];
   for (const t of tokens) {
-    const e = escapeRegExp(t);
-    regexes.push(new RegExp(t.length >= 4 ? e : `\\b${e}\\b`, 'gi'));
+    const e = escape(t);
+    // 4+ letters match inside longer words ("priyakrishnan"); shorter tokens
+    // ("Rao") are whole-word only so ordinary words are not mangled.
+    regexes.push(new RegExp(t.length >= 4 ? e : `(?<![A-Za-z0-9])${e}(?![A-Za-z0-9])`, 'gi'));
   }
   return regexes;
 }
 
-export interface DeidentifyResult {
-  ok: boolean;
-  reason?: string;
-  name?: string;
-  email?: string;
-  phone?: string;
-  redactedText?: string;
-}
+export function deidentify(input: DeidInput): DeidResult {
+  try {
+    const text = stripPageMarkers(normalizeText(input.rawText));
+    if (text.replace(/\s/g, '').length < 200) {
+      return { ok: false, reason: 'The PDF has no extractable text (it may be a scan).', email: null, phone: null };
+    }
+    const lines = text.split('\n');
 
-export function deidentifyCv(rawText: string, originalFilename: string): DeidentifyResult {
-  const emails = rawText.match(EMAIL_RE) || [];
-  const nameDetection = detectName(rawText);
-  // Surfaced even on failure so a manual reviewer isn't starting from zero.
-  const partial = { name: nameDetection.name ?? undefined, email: emails[0], phone: (rawText.match(PHONE_RE) || [])[0] };
+    const emails = [...new Set((text.match(EMAIL_RE) ?? []).map((e) => e.toLowerCase()))];
+    const phones = findPhones(text);
+    const distinctPhones = [...new Set(phones.map((p) => p.replace(/\D/g, '').slice(-10)))];
 
-  if (emails.length === 0) {
-    return { ok: false, reason: 'No email address could be confidently detected in the CV.', ...partial };
-  }
-  if (!nameDetection.name) {
-    return { ok: false, reason: 'Candidate name could not be confidently detected in the CV.', ...partial };
-  }
-  if (!filenameCorroboratesOrIsUninformative(originalFilename, nameDetection.name)) {
+    const contactLines: number[] = [];
+    lines.forEach((l, i) => {
+      if (new RegExp(EMAIL_RE.source).test(l) || findPhones(l).length || new RegExp(URL_RE.source, 'i').test(l)) {
+        contactLines.push(i);
+      }
+    });
+
+    const firstEmailLine = lines.findIndex((l) => new RegExp(EMAIL_RE.source).test(l));
+    const primaryPhone =
+      phones.length === 0
+        ? null
+        : [...phones].sort((a, b) => {
+            const dist = (p: string) =>
+              Math.min(...lines.map((l, i) => (l.includes(p) ? Math.abs(i - firstEmailLine) : Infinity)));
+            return dist(a) - dist(b);
+          })[0].trim();
+    const partialPhone = distinctPhones.length === 1 ? primaryPhone : null;
+
+    if (emails.length === 0) {
+      return { ok: false, reason: 'No email address was found in the CV.', email: null, phone: partialPhone };
+    }
+    if (emails.length > 1) {
+      return {
+        ok: false,
+        reason: `The CV contains ${emails.length} different email addresses, so the candidate's own address is ambiguous.`,
+        email: null,
+        phone: partialPhone,
+      };
+    }
+    const email = emails[0];
+
+    const urlTexts = [...(text.match(URL_RE) ?? []), email.split('@')[0]].join(' ');
+    const established = establishName(lines, contactLines, {
+      url: flat(urlTexts),
+      filename: flat(input.filename.replace(/\.[^.]+$/, '')),
+      meta: flat(`${input.pdfTitle ?? ''} ${input.pdfAuthor ?? ''}`),
+    });
+    if ('error' in established) {
+      return { ok: false, reason: established.error, email, phone: partialPhone };
+    }
+    const name = established.name;
+
+    let redacted = text;
+    redacted = redacted.replace(EMAIL_RE, REDACTED);
+    redacted = redacted.replace(URL_RE, REDACTED);
+    redacted = redacted.replace(
+      /\b(?:linkedin|github|twitter|instagram|behance|portfolio|website)\s*:\s*\S+/gi,
+      REDACTED,
+    );
+    redacted = redacted.replace(HANDLE_RE, REDACTED);
+    redacted = redacted.replace(PHONE_RE, (m) => (findPhones(m).length ? REDACTED : m));
+    for (const re of nameRegexes(name)) redacted = redacted.replace(re, REDACTED);
+    redacted = redacted
+      .replace(/(?:\[REDACTED\][ \t·|,•–—-]*){2,}/g, `${REDACTED} `)
+      .replace(/[ \t]+\n/g, '\n');
+
+    const leak = assertNoLeak({ name, email, phone: primaryPhone }, redacted);
+    if (!leak.pass) {
+      return {
+        ok: false,
+        reason: `Leak check failed after redaction (${leak.findings.join(', ')}).`,
+        email,
+        phone: partialPhone,
+      };
+    }
+    return { ok: true, name, email, phone: primaryPhone, redactedText: redacted };
+  } catch (err) {
     return {
       ok: false,
-      reason: `Detected name "${nameDetection.name}" does not match the filename and could not be confirmed.`,
-      ...partial,
+      reason: `De-identification errored: ${err instanceof Error ? err.message : 'unknown error'}`,
+      email: null,
+      phone: null,
     };
   }
-
-  const primaryEmail = emails[0];
-  const phones = rawText.match(PHONE_RE) || [];
-  const primaryPhone = phones[0];
-  const name = nameDetection.name;
-
-  let redacted = rawText;
-
-  // Redact every email/phone match found by the same regexes used for
-  // detection, so nothing found is ever left unredacted by construction.
-  redacted = redacted.replace(EMAIL_RE, '[REDACTED]');
-  redacted = redacted.replace(URL_RE, '[REDACTED]');
-  redacted = redacted.replace(PHONE_RE, '[REDACTED]');
-
-  // Redact the full name (in any joined form), then each name token.
-  const nameRes = nameRegexes(name);
-  for (const re of nameRes) {
-    redacted = redacted.replace(re, '[REDACTED]');
-  }
-
-  // Defense-in-depth: confirm nothing identifying survived redaction.
-  const leaked =
-    redacted.match(EMAIL_RE) ||
-    redacted.match(URL_RE) ||
-    redacted.match(PHONE_RE) ||
-    nameRes.some((re) => redacted.match(re));
-  if (leaked) {
-    return {
-      ok: false,
-      reason: 'Residual identifying information remained after redaction.',
-      name,
-      email: primaryEmail,
-      phone: primaryPhone,
-    };
-  }
-
-  return {
-    ok: true,
-    name,
-    email: primaryEmail,
-    phone: primaryPhone,
-    redactedText: redacted,
-  };
 }
