@@ -1,8 +1,7 @@
+import { getModel } from './model';
 import { generateText, Output } from 'ai';
 import { z } from 'zod';
 import type { Role, RubricCriterion } from '../db';
-
-const model = () => process.env.AI_SCORING_MODEL || 'anthropic/claude-sonnet-5';
 
 const ScoreSchema = z.object({
   scores: z.array(
@@ -34,7 +33,7 @@ export async function scoreCvAgainstRubric(
     .join('\n');
 
   const { output } = await generateText({
-    model: model(),
+    model: getModel(),
     output: Output.object({ schema: ScoreSchema }),
     system: `You are scoring a candidate's de-identified CV against a fixed hiring rubric. \
 Use ONLY the criteria and descriptions given below — do not invent new criteria, do not use \

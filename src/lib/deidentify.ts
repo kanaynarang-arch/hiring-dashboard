@@ -6,6 +6,11 @@
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 
+// URLs and social handles are direct identifiers ("linkedin.com/in/jane-doe")
+// and often embed the candidate's name, so they're removed outright.
+const URL_RE =
+  /(?:https?:\/\/|www\.)\S+|\b(?:linkedin|github|gitlab|behance|dribbble|twitter|medium|flowcv)\.[a-z]{2,}(?:\/\S*)?|\b[a-z0-9-]+\.(?:com|in|me|io|co|net|org|dev)\/\S*/gi;
+
 // Requires 7-15 digits overall so it doesn't catch years, zip codes, etc.
 // Accepts leading +, and common separators (space, dot, dash, parens).
 const PHONE_RE =
@@ -215,10 +220,19 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function redactAllOccurrences(text: string, phrase: string, placeholder: string): string {
-  if (!phrase) return text;
-  const re = new RegExp(`\\b${escapeRegExp(phrase)}\\b`, 'gi');
-  return text.replace(re, placeholder);
+// Name tokens of 4+ letters are matched anywhere, even inside a longer word
+// ("priyakrishnan", "Kumar_Resume"), because a name fused into a handle or
+// filename-like string is still the name. Shorter tokens ("Rao", "Das") are
+// whole-word only to avoid mangling ordinary words ("Dashboard").
+function nameRegexes(name: string): RegExp[] {
+  const tokens = name.split(/\s+/).filter((t) => t.length >= 2);
+  const joined = tokens.map(escapeRegExp).join('[\\s._-]*');
+  const regexes = [new RegExp(joined, 'gi')];
+  for (const t of tokens) {
+    const e = escapeRegExp(t);
+    regexes.push(new RegExp(t.length >= 4 ? e : `\\b${e}\\b`, 'gi'));
+  }
+  return regexes;
 }
 
 export interface DeidentifyResult {
@@ -260,22 +274,25 @@ export function deidentifyCv(rawText: string, originalFilename: string): Deident
   // Redact every email/phone match found by the same regexes used for
   // detection, so nothing found is ever left unredacted by construction.
   redacted = redacted.replace(EMAIL_RE, '[REDACTED]');
+  redacted = redacted.replace(URL_RE, '[REDACTED]');
   redacted = redacted.replace(PHONE_RE, '[REDACTED]');
 
-  // Redact the full name, plus each individual name token (first name,
-  // last name, middle names/initials) wherever it recurs in the body.
-  redacted = redactAllOccurrences(redacted, name, '[REDACTED]');
-  for (const token of name.split(/\s+/)) {
-    if (token.length >= 2) {
-      redacted = redactAllOccurrences(redacted, token, '[REDACTED]');
-    }
+  // Redact the full name (in any joined form), then each name token.
+  const nameRes = nameRegexes(name);
+  for (const re of nameRes) {
+    redacted = redacted.replace(re, '[REDACTED]');
   }
 
-  // Defense-in-depth: confirm no email/phone pattern survived redaction.
-  if (redacted.match(EMAIL_RE) || redacted.match(PHONE_RE)) {
+  // Defense-in-depth: confirm nothing identifying survived redaction.
+  const leaked =
+    redacted.match(EMAIL_RE) ||
+    redacted.match(URL_RE) ||
+    redacted.match(PHONE_RE) ||
+    nameRes.some((re) => redacted.match(re));
+  if (leaked) {
     return {
       ok: false,
-      reason: 'Residual contact-info pattern remained after redaction.',
+      reason: 'Residual identifying information remained after redaction.',
       name,
       email: primaryEmail,
       phone: primaryPhone,

@@ -1,8 +1,7 @@
+import { getModel } from './model';
 import { generateText } from 'ai';
 import type { Role } from '../db';
 import { JOB_DESCRIPTIONS } from '../jd';
-
-const model = () => process.env.AI_SCORING_MODEL || 'anthropic/claude-sonnet-5';
 
 export interface ScoredCriterion {
   name: string;
@@ -21,7 +20,7 @@ export async function generateInterviewBrief(
   const scoreLines = scores.map((s) => `- ${s.name}: ${s.score}/10 — ${s.reason}`).join('\n');
 
   const { text } = await generateText({
-    model: model(),
+    model: getModel(),
     system: `Write a three-sentence interview brief for the hiring manager, based on the \
 candidate's de-identified CV and their rubric scores below. Reference concrete facts from the \
 CV. Refer to them as "the candidate" — never invent or use a name. The job description below \

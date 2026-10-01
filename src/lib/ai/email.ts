@@ -1,10 +1,9 @@
+import { getModel } from './model';
 import { generateText, Output } from 'ai';
 import { z } from 'zod';
 import type { EmailType, Role } from '../db';
 import { JOB_DESCRIPTIONS } from '../jd';
 import { NAME_PLACEHOLDER } from '../namePlaceholder';
-
-const model = () => process.env.AI_SCORING_MODEL || 'anthropic/claude-sonnet-5';
 
 const EmailSchema = z.object({
   subject: z.string(),
@@ -31,7 +30,7 @@ human, not generic or robotic. If it fits naturally, reference one genuine thing
 background positively, but do not overdo it or imply a reason for the decision.`;
 
   const { output } = await generateText({
-    model: model(),
+    model: getModel(),
     output: Output.object({ schema: EmailSchema }),
     system: `You draft candidate emails using ONLY facts literally present in the de-identified \
 CV text given to you — never invent facts, never speculate. You do not know the candidate's \
