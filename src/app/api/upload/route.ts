@@ -1,5 +1,6 @@
 import { after } from 'next/server';
-import { createCandidate, runPipeline, sweepStaleProcessing } from '@/lib/pipeline';
+import { createCandidate, runPipeline } from '@/lib/pipeline';
+import { sweepStaleProcessing } from '@/lib/lifecycle';
 
 export const maxDuration = 300;
 

@@ -1,5 +1,5 @@
 import { getDashboardData } from '@/lib/queries';
-import { sweepStaleProcessing } from '@/lib/pipeline';
+import { sweepStaleProcessing } from '@/lib/lifecycle';
 import CandidateTable from '@/components/CandidateTable';
 import NeedsReviewTable from '@/components/NeedsReviewTable';
 
