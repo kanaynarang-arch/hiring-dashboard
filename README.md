@@ -126,7 +126,7 @@ All are in `.env.example`. Real values live only in `.env.local` (git-ignored) a
 | `AI_MODEL` | The single Gemini model id used for every AI step. Required |
 | `RESEND_API_KEY` | Sending (secret) |
 | `EMAIL_FROM` | Sender; must be on a Resend-verified domain that can deliver to the MESA addresses |
-| `BASE_URL`, `CV_DIR` | Optional, tests/scripts only |
+| `BASE_URL`, `CV_DIR`, `NO_HINTS` | Optional, tests/scripts only |
 
 Nothing is exposed to the browser; there are no `NEXT_PUBLIC_` variables.
 
@@ -162,9 +162,23 @@ test data: they are never copied into the repo or logged.
 
 ## Deployment
 
-Pushing to `main` deploys on Vercel (the GitHub repo is connected). Set the six variables above for
-the Production environment (`vercel env add NAME production`). `next.config.ts` lists `pdf-parse` as
-an external server package so its worker file is available at runtime.
+Production: https://hiring-dashboard-sandy-omega.vercel.app (Vercel project `kanay-mesa/hiring-dashboard`).
+
+Set the six variables above for the Production environment (`vercel env add NAME production`).
+`next.config.ts` keeps `pdf-parse`/`pdfjs-dist`/`@napi-rs/canvas` external and explicitly traces them
+into `/api/upload`, because PDF.js loads its worker and canvas polyfill through dynamic requires that
+file tracing cannot see. (`/dashboard` does not import them.)
+
+The GitHub repo is connected to the Vercel project, but Vercel currently **blocks** Git-triggered
+deployments ("the commit author doesn't have permission"): the commit email is not linked to the
+Vercel/GitHub account. Until that is fixed, deploy with the CLI from a copy of the source that has no
+`.git` folder (the CLI otherwise sends the commit author with the upload and is blocked the same way):
+
+```bash
+rsync -a --exclude .git --exclude node_modules --exclude .next --exclude '.env*' --exclude tests --exclude scripts ./ /tmp/deploy && cd /tmp/deploy && vercel deploy --prod --yes
+```
+
+See `HANDOFF.md` for the open items.
 
 ## Decisions
 
