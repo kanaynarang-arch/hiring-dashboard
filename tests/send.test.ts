@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { deliveryAddress, isMesaTestAddress, testModeRecipient } from '../src/lib/send';
+import { deliveryAddress, isMesaTestAddress, isRecipientAllowed, testModeRecipient } from '../src/lib/send';
 
 test('MESA allow-list accepts the test domain and subdomains only', () => {
   assert.equal(isMesaTestAddress('squad_1@pg27.mesaschool.co'), true);
@@ -22,5 +22,16 @@ test('test mode redirects delivery, and a non-MESA override is still refused by 
   assert.equal(deliveryAddress('anyone@example.org'), 'owner@pg27.mesaschool.co');
   process.env.EMAIL_TEST_RECIPIENT = 'owner@example.org';
   assert.equal(isMesaTestAddress(deliveryAddress('squad_1@pg27.mesaschool.co')), false);
+  delete process.env.EMAIL_TEST_RECIPIENT;
+});
+
+test('the stored address must be MESA even in test mode (a real external candidate is refused)', () => {
+  delete process.env.EMAIL_TEST_RECIPIENT;
+  assert.equal(isRecipientAllowed('squad_1@pg27.mesaschool.co'), true);
+  assert.equal(isRecipientAllowed('someone@gmail.com'), false);
+  process.env.EMAIL_TEST_RECIPIENT = 'owner@pg27.mesaschool.co';
+  assert.equal(isRecipientAllowed('squad_1@pg27.mesaschool.co'), true);
+  assert.equal(isRecipientAllowed('someone@gmail.com'), false, 'test mode must not let a non-MESA stored address through');
+  assert.equal(isRecipientAllowed(null), false);
   delete process.env.EMAIL_TEST_RECIPIENT;
 });

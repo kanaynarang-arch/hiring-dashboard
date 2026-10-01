@@ -4,7 +4,7 @@ import { deidentify } from './deidentify';
 import { scoreCvAgainstRubric } from './ai/scoring';
 import { generateInterviewBrief } from './ai/brief';
 import { draftCandidateEmail, finalizeEmail } from './ai/email';
-import { getTopCandidateIds, rankCandidatesForRole, SCORED_FILTER } from './ranking';
+import { getTopCandidateIds, SCORED_FILTER } from './ranking';
 import { failCandidate } from './lifecycle';
 
 const ROLES: Role[] = ['pm', 'spm'];

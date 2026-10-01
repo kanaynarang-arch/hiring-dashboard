@@ -21,6 +21,13 @@ export function testModeRecipient(): string | null {
   return process.env.EMAIL_TEST_RECIPIENT?.trim() || null;
 }
 
+// A send is allowed only if the candidate's STORED address is a MESA test address (never email a
+// real external address) and so is the address it will actually be delivered to. Test mode
+// changes where the mail goes, never whether a non-MESA candidate may be emailed.
+export function isRecipientAllowed(storedEmail: string | null | undefined): boolean {
+  return isMesaTestAddress(storedEmail) && isMesaTestAddress(deliveryAddress(storedEmail));
+}
+
 // The address a draft will actually be sent to.
 export function deliveryAddress(storedEmail: string | null | undefined): string | null {
   return testModeRecipient() ?? storedEmail ?? null;
@@ -90,20 +97,21 @@ async function loadForSend(candidateId: string) {
     db.from('candidate_emails').select('*').eq('candidate_id', candidateId).maybeSingle(),
     db.from('candidate_pii').select('email').eq('candidate_id', candidateId).maybeSingle(),
   ]);
-  return { cand, email, to: deliveryAddress(pii?.email as string | null) };
+  const stored = (pii?.email as string | null) ?? null;
+  return { cand, email, stored, to: deliveryAddress(stored) };
 }
 
 // Step 1 — the founder's click. Persists a confirmation bound to the exact
 // recipient, subject and body that were on screen.
 export async function confirmSend(candidateId: string): Promise<SendOutcome> {
   await reopenTestSends();
-  const { cand, email, to } = await loadForSend(candidateId);
+  const { cand, email, stored, to } = await loadForSend(candidateId);
   if (!cand || !email) return fail('not_found', 'No such candidate or draft.', 404);
   if (cand.status === 'sent' || email.status === 'sent') {
     return { ok: true, alreadySent: true, message: 'Already sent.', messageId: email.resend_message_id ?? undefined, httpStatus: 200 };
   }
   if (cand.status !== 'scored') return fail('not_sendable', 'Only scored candidates can be emailed.', 409);
-  if (!to || !isMesaTestAddress(to)) {
+  if (!to || !isRecipientAllowed(stored)) {
     return fail('recipient_not_allowed', `Refused: the stored address is not a MESA test address (@${MESA_TEST_DOMAIN}).`, 403);
   }
   const hash = contentHash(to, email.subject, email.body);
@@ -122,14 +130,14 @@ export async function confirmSend(candidateId: string): Promise<SendOutcome> {
 export async function sendConfirmed(candidateId: string): Promise<SendOutcome> {
   const db = getDb();
   await reopenTestSends();
-  const { cand, email, to } = await loadForSend(candidateId);
+  const { cand, email, stored, to } = await loadForSend(candidateId);
   if (!cand || !email) return fail('not_found', 'No such candidate or draft.', 404);
 
   if (cand.status === 'sent' || email.status === 'sent') {
     return { ok: true, alreadySent: true, message: 'Already sent; nothing was sent again.', messageId: email.resend_message_id ?? undefined, httpStatus: 200 };
   }
   if (cand.status !== 'scored') return fail('not_sendable', 'Only scored candidates can be emailed.', 409);
-  if (!to || !isMesaTestAddress(to)) {
+  if (!to || !isRecipientAllowed(stored)) {
     return fail('recipient_not_allowed', `Refused: the stored address is not a MESA test address (@${MESA_TEST_DOMAIN}).`, 403);
   }
 

@@ -1,6 +1,6 @@
 import { getDb, type Role, type CandidateStatus, type EmailType, type EmailStatus } from './db';
 import { rankCandidatesForRole, TOP_N } from './ranking';
-import { deliveryAddress, isMesaTestAddress } from './send';
+import { isRecipientAllowed } from './send';
 
 export interface CriterionScoreView {
   criterion_id: number;
@@ -63,7 +63,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     { data: emails },
   ] = await Promise.all([
     db.from('candidates').select('*').order('created_at', { ascending: false }),
-    db.from('candidate_pii').select('*'),
+    db.from('candidate_pii').select('candidate_id, name, email, phone'),
     db.from('candidate_role_scores').select('*'),
     db.from('candidate_scores').select('*'),
     db.from('rubric_criteria').select('*'),
@@ -130,7 +130,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       name: (p?.name as string) ?? null,
       email: (p?.email as string) ?? null,
       phone: (p?.phone as string | null) ?? null,
-      recipientAllowed: isMesaTestAddress(deliveryAddress(p?.email as string | undefined)),
+      recipientAllowed: isRecipientAllowed(p?.email as string | undefined),
       rank: rankByRole[role].get(id) ?? null,
       appliedRoleScore: roleScoresByCandidate.get(id)?.get(role) ?? null,
       otherRoleScore: roleScoresByCandidate.get(id)?.get(otherRole) ?? null,

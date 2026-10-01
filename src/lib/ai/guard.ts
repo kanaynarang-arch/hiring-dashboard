@@ -51,6 +51,9 @@ export async function generateStructured<S extends z.ZodTypeAny>(params: {
           output: Output.object({ schema: params.schema }),
           system: params.system,
           prompt: params.prompt,
+          // 429 / 5xx / network errors: retried on the SAME model with the SDK's exponential
+          // backoff (2s, 4s, 8s, 16s, 32s, honouring Retry-After). Never a different model.
+          maxRetries: 5,
         }),
       );
       return output as z.infer<S>;
