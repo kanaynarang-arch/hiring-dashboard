@@ -1,6 +1,6 @@
 import { getDb, type Role, type CandidateStatus, type EmailType, type EmailStatus } from './db';
 import { rankCandidatesForRole, TOP_N } from './ranking';
-import { isMesaTestAddress } from './send';
+import { deliveryAddress, isMesaTestAddress } from './send';
 
 export interface CriterionScoreView {
   criterion_id: number;
@@ -128,7 +128,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       name: (p?.name as string) ?? null,
       email: (p?.email as string) ?? null,
       phone: (p?.phone as string | null) ?? null,
-      recipientAllowed: isMesaTestAddress(p?.email as string | undefined),
+      recipientAllowed: isMesaTestAddress(deliveryAddress(p?.email as string | undefined)),
       rank: rankByRole[role].get(id) ?? null,
       appliedRoleScore: roleScoresByCandidate.get(id)?.get(role) ?? null,
       otherRoleScore: roleScoresByCandidate.get(id)?.get(otherRole) ?? null,

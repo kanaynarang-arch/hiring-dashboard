@@ -53,6 +53,7 @@ async function rowsFor(id: string) {
 }
 
 (async () => {
+  if (process.env.EMAIL_TEST_RECIPIENT) throw new Error('Unset EMAIL_TEST_RECIPIENT before running this suite: test mode would redirect (and really send) the 3b/3f emails.');
   const dir = cvDir();
   await clearAllCandidates();
   const cleanup: string[] = [];

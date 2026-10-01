@@ -13,6 +13,19 @@ export function isMesaTestAddress(email: string | null | undefined): boolean {
   return m[1] === MESA_TEST_DOMAIN || m[1].endsWith(`.${MESA_TEST_DOMAIN}`);
 }
 
+// Test mode (opt-in, off by default): when EMAIL_TEST_RECIPIENT is set, every email is
+// delivered to that address instead of the candidate's. A free Resend account without a
+// verified domain can only deliver to its owner's own address, and the course test data
+// uses MESA test addresses only, so this lets the whole confirm-and-send flow run for real.
+export function testModeRecipient(): string | null {
+  return process.env.EMAIL_TEST_RECIPIENT?.trim() || null;
+}
+
+// The address a draft will actually be sent to.
+export function deliveryAddress(storedEmail: string | null | undefined): string | null {
+  return testModeRecipient() ?? storedEmail ?? null;
+}
+
 export function contentHash(to: string, subject: string, body: string): string {
   return createHash('sha256').update(`${to.toLowerCase()}\n${subject}\n${body}`).digest('hex');
 }
@@ -59,7 +72,7 @@ async function loadForSend(candidateId: string) {
     db.from('candidate_emails').select('*').eq('candidate_id', candidateId).maybeSingle(),
     db.from('candidate_pii').select('email').eq('candidate_id', candidateId).maybeSingle(),
   ]);
-  return { cand, email, to: (pii?.email as string | null) ?? null };
+  return { cand, email, to: deliveryAddress(pii?.email as string | null) };
 }
 
 // Step 1 — the founder's click. Persists a confirmation bound to the exact
@@ -111,7 +124,7 @@ export async function sendConfirmed(candidateId: string): Promise<SendOutcome> {
 
   const result = await sendViaResend({
     to,
-    subject: email.subject,
+    subject: testModeRecipient() ? `[TEST] ${email.subject}` : email.subject,
     body: email.body,
     idempotencyKey: `kargo-send-${candidateId}-${hash.slice(0, 24)}`,
   });

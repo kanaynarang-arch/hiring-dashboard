@@ -110,6 +110,7 @@ The terminal ones are `scored`, `needs_review` and `sent`. `candidate_emails.sta
 * Sending is idempotent: an atomic compare-and-swap claims the draft (`draft|failed → sending`), the
   Resend idempotency key repeats the same message id on retry, and a second click on a sent candidate
   returns "already sent" without calling Resend.
+* **Test mode.** The course material only asks for a free Resend account and for Confirm to send to "the MESA test address". A Resend account without a verified domain can only deliver to its owner's own address, so setting `EMAIL_TEST_RECIPIENT` sends every email to that address instead of the candidate (still through Confirm, the stored confirmation and Resend). Unset it, and verify a domain, to email candidates.
 * **Recipients are restricted to MESA test addresses** (`@mesaschool.co` and subdomains). Anything
   else is refused in the UI, in `confirm` and in `send`.
 * Sent candidates are frozen: later uploads never regenerate their email.
@@ -125,6 +126,7 @@ All are in `.env.example`. Real values live only in `.env.local` (git-ignored) a
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini (secret; billed key) |
 | `AI_MODEL` | The single Gemini model id used for every AI step. Required |
 | `RESEND_API_KEY` | Sending (secret) |
+| `EMAIL_TEST_RECIPIENT` | Optional test mode: deliver every email to this MESA address instead of the candidate's (subject gets `[TEST]`, dashboard shows a banner). Needed while Resend has no verified domain |
 | `EMAIL_FROM` | Sender. Needs a Resend-verified domain to reach anyone other than the Resend account owner; the sandbox sender only delivers to the owner |
 | `BASE_URL`, `CV_DIR`, `NO_HINTS`, `TEST_RECIPIENT` | Optional, tests/scripts only |
 
@@ -150,7 +152,7 @@ npx tsx --test tests/*.test.ts
 # de-identification over a folder of CVs (no AI, no DB)
 npx tsx scripts/deid-check.ts /path/to/cv-folder
 
-# integration tests, against a running server + real DB + real Gemini (CV_DIR or argument)
+# integration tests (run with EMAIL_TEST_RECIPIENT unset), against a running server + real DB + real Gemini (CV_DIR or argument)
 npx tsx --env-file=.env.local tests/integration/three.ts       /path/to/cv-folder
 npx tsx --env-file=.env.local tests/integration/adversarial.ts /path/to/cv-folder
 npx tsx --env-file=.env.local tests/integration/all60.ts       /path/to/cv-folder --concurrency=3
