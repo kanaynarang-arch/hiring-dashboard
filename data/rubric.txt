@@ -1,0 +1,110 @@
+KARGO HIRING RUBRIC
+Derived from the 8 past-hire profiles (hires/) and the outcomes table in the case brief.
+NOT derived from the Product Manager / Senior Product Manager job descriptions.
+
+===============================================================
+SOURCE PATTERNS (what separates Exceeds Expectations from Meets/Below)
+===============================================================
+
+Rated Exceeds Expectations: Rohan Desai (Head of Engineering), Sunita Krishnamurthy (Operations Lead),
+Aditya Shetty (Sales Lead), Meghna Tiwari (Customer Success Manager), Lavanya Iyer (Product Manager)
+
+Rated Meets Expectations: Vikram Nair (Product Manager), Rahul Bose (Growth & Marketing Lead)
+Rated Below Expectations: Preetham Rao (Backend Engineer)
+
+Pattern 1 - Unprompted, durable ownership.
+Every Exceeds hire has at least one instance of noticing a gap nobody assigned them and building a
+fix on their own initiative - and that fix outlived the task, becoming something others relied on
+afterward, not a one-off personal accomplishment.
+  - Rohan: built a shipment-tracking system in Excel when none existed - "adopted across the
+    12-member operations team within two weeks"; built a Bill of Lading verification module
+    unprompted - "30 colleagues using it within the first month; now a core platform feature."
+  - Sunita: redesigned the team's documentation workflow overnight after a vendor changed formats
+    without notice - "the updated process was retained permanently by the team."
+  - Meghna: built the CS team's 30-60-90 onboarding framework - "the full CS team now uses"; wrote
+    the onboarding checklist that "became the team's standard."
+  - Aditya: built the company's first case study programme - "now used as primary sales collateral
+    by the full team."
+  - Lavanya: wrote the product's first formal API documentation, cutting integration timelines.
+Contrast: Vikram's process improvements (a PRD template) were adopted only within his own 4-person
+PM team, not an account or the org; most of his listed wins are metrics against an existing role,
+not gaps he found and filled. Preetham's fixes (a monitoring dashboard, an indexing redesign) solved
+problems for himself inside Cartexa's already-mature, well-resourced engineering org - nothing in his
+profile becomes a practice other people now follow.
+
+Pattern 2 - Sole ownership with no safety net, and failure turned into institutional memory.
+Every Exceeds hire operates as the last point of accountability on something consequential - no
+senior layer catches their call - and treats a mistake or crisis as something to document and fix
+at the root, not just move past.
+  - Aditya: "runs the full enterprise sales cycle independently... no account manager layer between
+    the client and execution"; ran a post-mortem on a lost deal that is "now standard practice
+    before account qualification."
+  - Meghna: resolved a customs-hold crisis alone at 7pm "before the client became aware"; "no
+    escalation to management in the last 14 months."
+  - Lavanya: "sole PM"; drafted the internal and customer-facing post-mortem after a platform outage
+    and "owned the follow-up action items to closure." Direct quote from her engineering lead: "the
+    first PM here who has made calls we trusted immediately. She doesn't hedge."
+  - Sunita: "comfortable owning processes start to finish with limited oversight"; ran a compliance
+    audit and closed gaps before an inspection, unprompted.
+Contrast: Vikram's decisions run through more layers (quarterly presentations to CTO/VP Sales,
+a 4-person PM team) and his profile has no failure-into-practice example. Rahul's profile is
+entirely wins and targets hit (quota, CAC, pipeline) with no instance of a documented mistake
+becoming a lasting fix. Preetham participates in an on-call rotation and review process that
+already existed at Cartexa - he never appears as the one who had to install it or who owned a
+crisis end to end.
+
+===============================================================
+PRODUCT MANAGER - RUBRIC
+===============================================================
+
+Criterion name: Self-Started Fixes
+What a strong candidate looks like: Their history shows at least one clear case of noticing a
+problem nobody assigned them and building something to close it without being asked - even a small
+one - not just executing a roadmap or backlog someone else defined.
+Weight: 25%
+
+Criterion name: Built to Last
+What a strong candidate looks like: At least one thing they built or changed is described as being
+used, kept, or relied on by other people afterward (a teammate, a client, a team) - not just
+something they personally used once and moved on from.
+Weight: 25%
+
+Criterion name: Owns the Call Alone
+What a strong candidate looks like: At least one instance where they made a consequential call or
+handled a crisis end-to-end without a manager or senior layer stepping in to catch or approve it
+first.
+Weight: 25%
+
+Criterion name: Failure Becomes Practice
+What a strong candidate looks like: At least one instance of writing up or reflecting on a mistake,
+loss, or gap - not just listing wins - and turning it into a concrete change (a new step, a doc, a
+fix) rather than a vague lesson-learned statement.
+Weight: 25%
+
+===============================================================
+SENIOR PRODUCT MANAGER - RUBRIC
+(same four criteria; bar raised, especially on independence)
+===============================================================
+
+Criterion name: Self-Started Fixes
+What a strong candidate looks like: This shows up more than once, across more than one role or
+company - a pattern of initiative, not a single anecdote from early in their career.
+Weight: 20%
+
+Criterion name: Built to Last
+What a strong candidate looks like: What they built is explicitly described as adopted, retained, or
+made standard practice by a team, account, or company - language like "the full team now uses this"
+or "retained permanently" - not just "I used this and it helped."
+Weight: 20%
+
+Criterion name: Owns the Call Alone
+What a strong candidate looks like: Sole ownership without a senior layer above them is the norm in
+their role, not an exception they can point to once - and ideally there is direct evidence (a quote,
+a review note) that colleagues trusted their judgment on calls with real consequences.
+Weight: 35%
+
+Criterion name: Failure Becomes Practice
+What a strong candidate looks like: The write-up of a mistake or crisis demonstrably changed how the
+team or company operates afterward ("now standard practice," a retained process) - not just a
+personal takeaway with no lasting artifact.
+Weight: 25%
